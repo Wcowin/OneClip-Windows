@@ -83,13 +83,21 @@ export async function clearHistory(): Promise<void> {
 
 /**
  * 粘贴项目
+ * 支持文本和图片类型
  */
-export async function pasteItem(content: string, itemType: string): Promise<void> {
+export async function pasteItem(content: string, itemType: string, imagePath?: string): Promise<void> {
   try {
-    // 先写入剪贴板
-    await copyToClipboard(content)
-    // 调用后端执行粘贴（后端会隐藏窗口、聚焦上一个窗口、模拟按键）
-    await invoke('paste_item', { content, item_type: itemType })
+    // 文本类型：先写入文本到剪贴板
+    if (itemType !== 'image') {
+      await copyToClipboard(content)
+    }
+    // 调用后端执行粘贴
+    // 后端会：1. 如果是图片则写入图片到剪贴板 2. 隐藏窗口 3. 聚焦上一个窗口 4. 模拟按键
+    await invoke('paste_item', {
+      content,
+      item_type: itemType,
+      image_path: imagePath || null
+    })
   } catch (error) {
     console.error('粘贴失败:', error)
   }
@@ -237,3 +245,127 @@ export async function readFromClipboard(): Promise<string> {
 
 // 别名导出，用于剪贴板监控
 export const readClipboardText = readFromClipboard
+
+// ============ 同步目录操作 ============
+
+/**
+ * 设置同步目录（Mac 版 OneClip 数据目录）
+ */
+export async function setSyncDirectory(path: string): Promise<void> {
+  await invoke('set_sync_directory', { path })
+}
+
+/**
+ * 获取同步目录
+ */
+export async function getSyncDirectory(): Promise<string | null> {
+  return await invoke<string | null>('get_sync_directory')
+}
+
+/**
+ * 执行同步（应用远程变更）
+ */
+export async function syncNow(): Promise<number> {
+  return await invoke<number>('sync_now')
+}
+
+/**
+ * 获取设备信息
+ */
+export async function getDeviceInfo(): Promise<{ deviceId: string; deviceName: string }> {
+  return await invoke('get_device_info')
+}
+
+// ============ 自动启动 ============
+
+/**
+ * 设置开机自启动
+ */
+export async function setAutostart(enabled: boolean): Promise<void> {
+  await invoke('set_autostart', { enabled })
+}
+
+/**
+ * 获取开机自启动状态
+ */
+export async function getAutostart(): Promise<boolean> {
+  return await invoke<boolean>('get_autostart')
+}
+
+/**
+ * 更新备注
+ */
+export async function updateNote(id: string, note: string | null): Promise<void> {
+  await invoke('update_note', { id, note })
+}
+
+/**
+ * 更新内容
+ */
+export async function updateContent(id: string, content: string): Promise<void> {
+  await invoke('update_content', { id, content })
+}
+
+/**
+ * 清理过期记录
+ * @param days 保留天数，超过此天数的记录将被删除（置顶和收藏除外）
+ * @returns 删除的记录数
+ */
+export async function cleanupExpired(days: number): Promise<number> {
+  return await invoke<number>('cleanup_expired', { days })
+}
+
+// ============ 监控设置 ============
+
+/**
+ * 设置剪贴板监控开关
+ */
+export async function setMonitorEnabled(enabled: boolean): Promise<void> {
+  await invoke('set_monitor_enabled', { enabled })
+}
+
+/**
+ * 获取剪贴板监控状态
+ */
+export async function getMonitorEnabled(): Promise<boolean> {
+  return await invoke<boolean>('get_monitor_enabled')
+}
+
+/**
+ * 设置排除的应用列表
+ */
+export async function setExcludedApps(apps: string[]): Promise<void> {
+  await invoke('set_excluded_apps', { apps })
+}
+
+/**
+ * 限制历史记录数量
+ * @param maxCount 最大记录数（置顶和收藏除外）
+ * @returns 删除的记录数
+ */
+export async function limitHistoryCount(maxCount: number): Promise<number> {
+  return await invoke<number>('limit_history_count', { maxCount })
+}
+
+// ============ 图片路径 ============
+
+/**
+ * 获取图片的完整路径（用于显示）
+ * 相对路径会拼接同步目录或本地目录
+ */
+export async function getImageFullPath(relativePath: string): Promise<string> {
+  if (!relativePath) return ''
+  // 如果已经是绝对路径，直接返回
+  if (relativePath.startsWith('/') || relativePath.includes(':')) {
+    return relativePath
+  }
+  // 获取同步目录
+  const syncDir = await getSyncDirectory()
+  if (syncDir) {
+    return `${syncDir}/${relativePath}`
+  }
+  // 使用本地目录
+  const { appDataDir } = await import('@tauri-apps/api/path')
+  const localDir = await appDataDir()
+  return `${localDir}${relativePath}`
+}

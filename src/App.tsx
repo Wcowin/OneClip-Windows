@@ -8,6 +8,7 @@ import QuickReplyManager from './components/QuickReplyManager'
 import TextEditor from './components/TextEditor'
 import { useKeyboard } from './hooks/useKeyboard'
 import { useClipboardMonitor } from './hooks/useClipboardMonitor'
+import { cleanupExpired } from './lib/tauri'
 import type { ClipboardItem } from './types'
 
 /**
@@ -15,7 +16,7 @@ import type { ClipboardItem } from './types'
  * 使用 Tauri 2.0 + React + TypeScript
  */
 function App() {
-  const { isDarkMode } = useSettingsStore()
+  const { isDarkMode, autoClearDays } = useSettingsStore()
   const { loadItems, filteredItems, selectedIndex } = useClipboardStore()
   const [isLoading, setIsLoading] = useState(true)
   const [showSettings, setShowSettings] = useState(false)
@@ -56,6 +57,17 @@ function App() {
     // 初始化应用
     const init = async () => {
       try {
+        // 自动清理过期记录（借鉴 EcoPaste 的 Duration 功能）
+        if (autoClearDays > 0) {
+          try {
+            const deleted = await cleanupExpired(autoClearDays)
+            if (deleted > 0) {
+              console.log(`自动清理了 ${deleted} 条过期记录`)
+            }
+          } catch (e) {
+            console.error('自动清理失败:', e)
+          }
+        }
         await loadItems()
       } catch (error) {
         console.error('初始化失败:', error)
@@ -64,7 +76,7 @@ function App() {
       }
     }
     init()
-  }, [loadItems])
+  }, [loadItems, autoClearDays])
 
   // 应用深色模式
   useEffect(() => {

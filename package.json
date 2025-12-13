@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "OneClip - 智能剪贴板管理工具 Windows 版",
   "author": "Wcowin <vip@oneclip.cloud>",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {

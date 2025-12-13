@@ -63,7 +63,7 @@ export function useKeyboard(options: UseKeyboardOptions = {}) {
       e.preventDefault()
       const item = filteredItems[selectedIndex]
       if (item) {
-        pasteItem(item.content, item.type)
+        pasteItem(item.content, item.type, item.imagePath)
       }
       return
     }
@@ -112,7 +112,7 @@ export function useKeyboard(options: UseKeyboardOptions = {}) {
       if (index < filteredItems.length) {
         e.preventDefault()
         const item = filteredItems[index]
-        pasteItem(item.content, item.type)
+        pasteItem(item.content, item.type, item.imagePath)
       }
       return
     }

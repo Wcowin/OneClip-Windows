@@ -1,6 +1,15 @@
 import { create } from 'zustand'
 import type { ClipboardItem, CategoryType } from '../types'
-import { getClipboardHistory, pasteItem as tauriPasteItem, deleteClipboardItem, togglePin as tauriTogglePin, toggleFavorite as tauriToggleFavorite, clearHistory as tauriClearHistory } from '../lib/tauri'
+import {
+  getClipboardHistory,
+  pasteItem as tauriPasteItem,
+  deleteClipboardItem,
+  togglePin as tauriTogglePin,
+  toggleFavorite as tauriToggleFavorite,
+  clearHistory as tauriClearHistory,
+  updateNote as tauriUpdateNote,
+  updateContent as tauriUpdateContent
+} from '../lib/tauri'
 
 /**
  * 剪贴板状态管理
@@ -12,11 +21,11 @@ interface ClipboardState {
   items: ClipboardItem[]
   filteredItems: ClipboardItem[]
   selectedIndex: number
-  
+
   // 过滤器
   currentCategory: CategoryType
   searchKeyword: string
-  
+
   // 操作
   loadItems: () => Promise<void>
   addItem: (item: ClipboardItem) => void
@@ -30,6 +39,8 @@ interface ClipboardState {
   pasteItem: (id: string) => Promise<void>
   clearHistory: () => void
   moveItem: (fromIndex: number, toIndex: number) => void
+  updateNote: (id: string, note: string | null) => void
+  updateContent: (id: string, content: string) => void
 }
 
 // 模拟数据（后续会从 Tauri 后端获取）
@@ -238,10 +249,10 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
   pasteItem: async (id: string) => {
     const item = get().items.find((i: ClipboardItem) => i.id === id)
     if (!item) return
-    
+
     // 调用 Tauri 后端粘贴
     try {
-      await tauriPasteItem(item.content, item.type)
+      await tauriPasteItem(item.content, item.type, item.imagePath)
     } catch (error) {
       console.error('粘贴失败:', error)
     }
@@ -269,6 +280,38 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
       const newItems = [...state.items]
       const [movedItem] = newItems.splice(fromIndex, 1)
       newItems.splice(toIndex, 0, movedItem)
+      return {
+        items: newItems,
+        filteredItems: filterItems(newItems, state.currentCategory, state.searchKeyword),
+      }
+    })
+  },
+
+  // 更新备注
+  updateNote: (id: string, note: string | null) => {
+    // 调用后端更新
+    tauriUpdateNote(id, note).catch(err => console.error('更新备注失败:', err))
+
+    set((state) => {
+      const newItems = state.items.map((item: ClipboardItem) =>
+        item.id === id ? { ...item, note: note || undefined } : item
+      )
+      return {
+        items: newItems,
+        filteredItems: filterItems(newItems, state.currentCategory, state.searchKeyword),
+      }
+    })
+  },
+
+  // 更新内容
+  updateContent: (id: string, content: string) => {
+    // 调用后端更新
+    tauriUpdateContent(id, content).catch(err => console.error('更新内容失败:', err))
+
+    set((state) => {
+      const newItems = state.items.map((item: ClipboardItem) =>
+        item.id === id ? { ...item, content } : item
+      )
       return {
         items: newItems,
         filteredItems: filterItems(newItems, state.currentCategory, state.searchKeyword),

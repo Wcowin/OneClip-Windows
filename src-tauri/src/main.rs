@@ -12,21 +12,38 @@ mod clipboard;
 mod database;
 mod commands;
 mod paste;
+mod sync;
 
 use tauri::{
     Manager,
     tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent},
 };
+use tauri_plugin_log::{Target, TargetKind};
 
 fn main() {
-    // 初始化日志
-    env_logger::init();
-
     tauri::Builder::default()
+        // 单实例支持 - 确保只有一个应用实例运行
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // 当尝试启动第二个实例时，显示主窗口
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+        // 日志插件
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    Target::new(TargetKind::Stdout),
+                    Target::new(TargetKind::LogDir { file_name: None }),
+                ])
+                .build(),
+        )
         // 插件注册
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--hidden"]),
@@ -44,6 +61,19 @@ fn main() {
             commands::paste_item,
             commands::get_settings,
             commands::save_settings,
+            commands::set_sync_directory,
+            commands::get_sync_directory,
+            commands::sync_now,
+            commands::get_device_info,
+            commands::set_autostart,
+            commands::get_autostart,
+            commands::update_note,
+            commands::update_content,
+            commands::cleanup_expired,
+            commands::set_monitor_enabled,
+            commands::get_monitor_enabled,
+            commands::set_excluded_apps,
+            commands::limit_history_count,
         ])
         
         // 应用启动设置
@@ -53,6 +83,9 @@ fn main() {
             if let Err(e) = database::init_database(&app_handle) {
                 log::error!("数据库初始化失败: {}", e);
             }
+
+            // 加载同步目录设置
+            database::load_sync_directory(&app_handle);
 
             // 创建系统托盘
             let _tray = TrayIconBuilder::new()
@@ -81,6 +114,29 @@ fn main() {
 
             // 启动窗口观察器（用于记录上一个活动窗口，粘贴时使用）
             paste::start_observer();
+
+            // 注册全局快捷键 (Ctrl+Shift+V)
+            use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, Code, Modifiers, ShortcutState};
+            let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV);
+            let app_handle_shortcut = app.handle().clone();
+            app.handle().plugin(
+                tauri_plugin_global_shortcut::Builder::new()
+                    .with_handler(move |_app, _shortcut, event| {
+                        if event.state == ShortcutState::Pressed {
+                            if let Some(window) = app_handle_shortcut.get_webview_window("main") {
+                                if window.is_visible().unwrap_or(false) {
+                                    let _ = window.hide();
+                                } else {
+                                    let _ = window.show();
+                                    let _ = window.set_focus();
+                                }
+                            }
+                        }
+                    })
+                    .build(),
+            )?;
+            app.global_shortcut().register(shortcut)?;
+            log::info!("全局快捷键已注册: Ctrl+Shift+V");
 
             // 启动剪贴板监控
             let app_handle = app.handle().clone();

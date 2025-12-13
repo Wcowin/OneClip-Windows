@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { ViewMode, Settings } from '../types'
+import type { ViewMode, Settings, AutoPasteMode } from '../types'
 
 /**
  * 设置状态管理
@@ -21,6 +21,9 @@ interface SettingsState extends Settings {
   addExcludedApp: (app: string) => void
   removeExcludedApp: (app: string) => void
   setWindowSize: (width: number, height: number) => void
+  setWindowPosition: (position: 'center' | 'cursor' | 'remember', x?: number, y?: number) => void
+  setAutoPaste: (mode: AutoPasteMode) => void
+  setPasteAsPlain: (enabled: boolean) => void
   resetSettings: () => void
 }
 
@@ -32,6 +35,8 @@ const defaultSettings: Settings = {
   maxHistoryCount: 1000,
   autoClearDays: 30,
   soundEnabled: true,
+  autoPaste: 'double',      // 默认双击粘贴
+  pasteAsPlain: false,      // 默认保留格式
   globalShortcut: 'Ctrl+Shift+V',
   monitorEnabled: true,
   excludedApps: [],
@@ -87,6 +92,16 @@ export const useSettingsStore = create<SettingsState>()(
       // 设置窗口大小
       setWindowSize: (width, height) =>
         set({ windowWidth: width, windowHeight: height }),
+
+      // 设置窗口位置
+      setWindowPosition: (position, x, y) =>
+        set({ windowPosition: position, windowX: x, windowY: y }),
+
+      // 设置自动粘贴模式
+      setAutoPaste: (mode) => set({ autoPaste: mode }),
+
+      // 设置粘贴为纯文本
+      setPasteAsPlain: (enabled) => set({ pasteAsPlain: enabled }),
 
       // 重置设置
       resetSettings: () => set(defaultSettings),

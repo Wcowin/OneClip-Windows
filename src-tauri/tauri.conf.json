@@ -60,6 +60,13 @@
     "autostart": {
       "macosLaunchAgent": false
     },
-    "notification": {}
+    "notification": {},
+    "fs": {
+      "scope": ["$APPDATA/**", "$HOME/**"]
+    },
+    "dialog": {
+      "open": true,
+      "save": true
+    }
   }
 }

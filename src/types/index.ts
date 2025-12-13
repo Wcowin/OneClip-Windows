@@ -26,22 +26,23 @@ export interface ClipboardItem {
   isQuickReply: boolean         // 是否为快捷回复
   category?: string             // 分类
   tags?: string[]               // 标签
-  
+  note?: string                 // 备注（借鉴 EcoPaste）
+
   // 图片相关
   imageWidth?: number
   imageHeight?: number
   imagePath?: string            // 图片存储路径
   thumbnailPath?: string        // 缩略图路径
-  
+
   // 文件相关
   fileName?: string
   fileSize?: number
   filePath?: string
-  
+
   // 颜色相关
   colorHex?: string
   colorRGB?: string
-  
+
   // 链接相关
   urlTitle?: string
   urlFavicon?: string
@@ -63,29 +64,36 @@ export type ViewMode = 'list' | 'grid'
 // 排序方式
 export type SortOrder = 'newest' | 'oldest' | 'alphabetical'
 
+// 自动粘贴模式
+export type AutoPasteMode = 'none' | 'single' | 'double'
+
 // 设置项
 export interface Settings {
   // 外观
   isDarkMode: boolean
   viewMode: ViewMode
   fontSize: number
-  
+
   // 行为
   maxHistoryCount: number
   autoClearDays: number
   soundEnabled: boolean
-  
+  autoPaste: AutoPasteMode  // 自动粘贴模式（借鉴 EcoPaste）
+  pasteAsPlain: boolean     // 粘贴为纯文本
+
   // 快捷键
   globalShortcut: string
-  
+
   // 监控
   monitorEnabled: boolean
   excludedApps: string[]
-  
+
   // 窗口
   windowWidth: number
   windowHeight: number
   windowPosition: 'center' | 'cursor' | 'remember'
+  windowX?: number          // 记住的窗口位置
+  windowY?: number
 }
 
 // 搜索过滤器

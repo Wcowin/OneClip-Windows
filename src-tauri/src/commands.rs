@@ -73,24 +73,121 @@ pub fn clear_history(app_handle: AppHandle) -> Result<(), String> {
 
 /// 粘贴项目
 #[tauri::command]
-pub async fn paste_item(app_handle: AppHandle, content: String, item_type: String) -> Result<(), String> {
-    log::info!("粘贴内容: {} (类型: {})", 
+pub async fn paste_item(app_handle: AppHandle, content: String, item_type: String, image_path: Option<String>) -> Result<(), String> {
+    log::info!("粘贴内容: {} (类型: {})",
         if content.len() > 50 { &content[..50] } else { &content },
         item_type
     );
-    
-    // 1. 将内容写入系统剪贴板
-    // 使用 tauri-plugin-clipboard-manager 写入剪贴板
-    // 这里通过前端调用插件 API 完成，后端只负责触发粘贴
-    
+
+    // 1. 如果是图片类型，先将图片写入剪贴板
+    #[cfg(target_os = "windows")]
+    if item_type == "image" {
+        if let Some(ref path) = image_path {
+            if let Err(e) = write_image_to_clipboard(&app_handle, path) {
+                log::error!("写入图片到剪贴板失败: {}", e);
+                // 继续执行，可能图片已经在剪贴板中
+            }
+        }
+    }
+
     // 2. 隐藏窗口
     if let Some(window) = app_handle.get_webview_window("main") {
         let _ = window.hide();
     }
-    
+
     // 3. 执行粘贴（聚焦上一个窗口 + 模拟按键）
     crate::paste::do_paste();
-    
+
+    Ok(())
+}
+
+/// 将图片写入系统剪贴板 (Windows)
+#[cfg(target_os = "windows")]
+fn write_image_to_clipboard(app_handle: &AppHandle, relative_path: &str) -> Result<(), String> {
+    use std::ptr;
+    use winapi::um::winuser::*;
+    use winapi::um::winbase::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+
+    // 获取图片完整路径
+    let full_path = if relative_path.starts_with('/') || relative_path.contains(':') {
+        std::path::PathBuf::from(relative_path)
+    } else {
+        // 相对路径，拼接同步目录或本地目录
+        if let Some(sync_dir) = database::get_sync_directory() {
+            sync_dir.join(relative_path)
+        } else {
+            database::get_local_data_dir(app_handle).join(relative_path)
+        }
+    };
+
+    log::info!("写入图片到剪贴板: {:?}", full_path);
+
+    // 读取图片文件
+    let img = image::open(&full_path)
+        .map_err(|e| format!("打开图片失败: {}", e))?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+
+    // 创建 DIB 数据
+    let header_size = 40u32; // BITMAPINFOHEADER size
+    let row_size = ((width * 4 + 3) / 4) * 4; // 4 字节对齐
+    let pixel_size = row_size * height;
+    let total_size = header_size as usize + pixel_size as usize;
+
+    unsafe {
+        // 分配全局内存
+        let h_mem = GlobalAlloc(GMEM_MOVEABLE, total_size);
+        if h_mem.is_null() {
+            return Err("分配内存失败".to_string());
+        }
+
+        let ptr = GlobalLock(h_mem) as *mut u8;
+        if ptr.is_null() {
+            return Err("锁定内存失败".to_string());
+        }
+
+        // 写入 BITMAPINFOHEADER
+        let header = ptr as *mut i32;
+        *header.add(0) = 40;                    // biSize
+        *header.add(1) = width as i32;          // biWidth
+        *header.add(2) = -(height as i32);      // biHeight (负值表示自上而下)
+        let header16 = ptr.add(12) as *mut i16;
+        *header16 = 1;                          // biPlanes
+        *header16.add(1) = 32;                  // biBitCount
+        let header32 = ptr.add(16) as *mut i32;
+        *header32 = 0;                          // biCompression (BI_RGB)
+
+        // 写入像素数据 (BGRA 格式)
+        let pixel_ptr = ptr.add(header_size as usize);
+        for y in 0..height {
+            for x in 0..width {
+                let pixel = rgba.get_pixel(x, y);
+                let offset = (y * row_size + x * 4) as usize;
+                *pixel_ptr.add(offset) = pixel[2];     // B
+                *pixel_ptr.add(offset + 1) = pixel[1]; // G
+                *pixel_ptr.add(offset + 2) = pixel[0]; // R
+                *pixel_ptr.add(offset + 3) = pixel[3]; // A
+            }
+        }
+
+        GlobalUnlock(h_mem);
+
+        // 写入剪贴板
+        if OpenClipboard(ptr::null_mut()) == 0 {
+            return Err("打开剪贴板失败".to_string());
+        }
+
+        EmptyClipboard();
+
+        if SetClipboardData(CF_DIB, h_mem).is_null() {
+            CloseClipboard();
+            return Err("设置剪贴板数据失败".to_string());
+        }
+
+        CloseClipboard();
+    }
+
+    log::info!("图片已写入剪贴板");
     Ok(())
 }
 
@@ -119,11 +216,122 @@ pub fn get_settings(app_handle: AppHandle) -> Result<serde_json::Value, String> 
 pub fn save_settings(app_handle: AppHandle, key: String, value: String) -> Result<(), String> {
     let conn = database::get_connection(&app_handle)
         .map_err(|e| format!("数据库连接失败: {}", e))?;
-    
+
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
         [&key, &value],
     ).map_err(|e| format!("保存设置失败: {}", e))?;
-    
+
     Ok(())
+}
+
+/// 设置同步目录并迁移数据
+#[tauri::command]
+pub fn set_sync_directory(app_handle: AppHandle, path: String) -> Result<(), String> {
+    database::set_sync_directory(&app_handle, &path)?;
+    log::info!("同步目录已设置: {}", path);
+    Ok(())
+}
+
+/// 获取同步目录
+#[tauri::command]
+pub fn get_sync_directory() -> Option<String> {
+    database::get_sync_directory().map(|p| p.to_string_lossy().to_string())
+}
+
+/// 执行同步（应用远程变更）
+#[tauri::command]
+pub fn sync_now(app_handle: AppHandle) -> Result<i32, String> {
+    crate::sync::apply_remote_changes(&app_handle)
+}
+
+/// 获取设备信息
+#[tauri::command]
+pub fn get_device_info() -> serde_json::Value {
+    serde_json::json!({
+        "deviceId": crate::sync::get_device_id(),
+        "deviceName": crate::sync::get_device_name()
+    })
+}
+
+/// 设置开机自启动
+#[tauri::command]
+pub fn set_autostart(app_handle: AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app_handle.autolaunch();
+    if enabled {
+        manager.enable().map_err(|e| e.to_string())?;
+    } else {
+        manager.disable().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// 获取开机自启动状态
+#[tauri::command]
+pub fn get_autostart(app_handle: AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    app_handle.autolaunch().is_enabled().map_err(|e| e.to_string())
+}
+
+/// 更新备注
+#[tauri::command]
+pub fn update_note(app_handle: AppHandle, id: String, note: Option<String>) -> Result<(), String> {
+    let conn = database::get_connection(&app_handle)
+        .map_err(|e| format!("数据库连接失败: {}", e))?;
+
+    database::update_note(&conn, &id, note.as_deref())
+        .map_err(|e| format!("更新备注失败: {}", e))
+}
+
+/// 更新内容（编辑功能）
+#[tauri::command]
+pub fn update_content(app_handle: AppHandle, id: String, content: String) -> Result<(), String> {
+    let conn = database::get_connection(&app_handle)
+        .map_err(|e| format!("数据库连接失败: {}", e))?;
+
+    database::update_content(&conn, &id, &content)
+        .map_err(|e| format!("更新内容失败: {}", e))
+}
+
+/// 清理过期记录（借鉴 EcoPaste 的 Duration 功能）
+#[tauri::command]
+pub fn cleanup_expired(app_handle: AppHandle, days: i32) -> Result<i32, String> {
+    if days <= 0 {
+        return Ok(0);
+    }
+
+    let conn = database::get_connection(&app_handle)
+        .map_err(|e| format!("数据库连接失败: {}", e))?;
+
+    database::cleanup_expired(&conn, days)
+        .map_err(|e| format!("清理过期记录失败: {}", e))
+}
+
+/// 设置剪贴板监控开关
+#[tauri::command]
+pub fn set_monitor_enabled(enabled: bool) {
+    crate::clipboard::set_monitor_enabled(enabled);
+}
+
+/// 获取剪贴板监控状态
+#[tauri::command]
+pub fn get_monitor_enabled() -> bool {
+    crate::clipboard::is_monitor_enabled()
+}
+
+/// 设置排除的应用列表
+#[tauri::command]
+pub fn set_excluded_apps(apps: Vec<String>) {
+    crate::clipboard::set_excluded_apps(apps);
+}
+
+/// 限制历史记录数量
+#[tauri::command]
+pub fn limit_history_count(app_handle: AppHandle, max_count: i32) -> Result<i32, String> {
+    let conn = database::get_connection(&app_handle)
+        .map_err(|e| format!("数据库连接失败: {}", e))?;
+
+    database::limit_history_count(&conn, max_count)
+        .map_err(|e| format!("限制历史数量失败: {}", e))
 }

@@ -14,6 +14,7 @@ interface ClipboardListProps {
   onSelect: (index: number) => void
   viewMode: ViewMode
   onEdit?: (item: ClipboardItem) => void
+  searchKeyword?: string  // 搜索关键词，用于高亮
 }
 
 export default function ClipboardList({
@@ -22,6 +23,7 @@ export default function ClipboardList({
   onSelect,
   viewMode,
   onEdit,
+  searchKeyword,
 }: ClipboardListProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const selectedRef = useRef<HTMLDivElement>(null)
@@ -67,6 +69,7 @@ export default function ClipboardList({
               onClick={() => onSelect(index)}
               viewMode="list"
               onEdit={onEdit}
+              searchKeyword={searchKeyword}
             />
           </div>
         ))}
@@ -89,6 +92,7 @@ export default function ClipboardList({
               onClick={() => onSelect(index)}
               viewMode="grid"
               onEdit={onEdit}
+              searchKeyword={searchKeyword}
             />
           </div>
         ))}

@@ -6,22 +6,224 @@
 //  设置面板组件
 //
 
-import { useState } from 'react'
-import { 
-  X, 
-  Palette, 
-  Keyboard, 
-  Bell, 
-  Database, 
+import { useState, useEffect } from 'react'
+import {
+  X,
+  Palette,
+  Keyboard,
+  Bell,
+  Database,
   Info,
   Monitor,
   Moon,
   Sun,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  FolderOpen,
+  Cloud,
+  Check,
+  Plus
 } from 'lucide-react'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useClipboardStore } from '../stores/clipboardStore'
+import {
+  setSyncDirectory,
+  getSyncDirectory,
+  setAutostart,
+  getAutostart,
+  setMonitorEnabled,
+  setExcludedApps,
+  limitHistoryCount,
+  cleanupExpired
+} from '../lib/tauri'
+
+// 同步目录选择器组件
+function SyncDirectorySelector() {
+  const [syncDir, setSyncDir] = useState<string | null>(null)
+  const [inputValue, setInputValue] = useState('')
+  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle')
+  const [errorMsg, setErrorMsg] = useState('')
+  const { loadItems } = useClipboardStore()
+
+  useEffect(() => {
+    getSyncDirectory().then((dir) => {
+      setSyncDir(dir)
+      if (dir) setInputValue(dir)
+    })
+  }, [])
+
+  const handleSetDirectory = async () => {
+    if (!inputValue.trim()) return
+    try {
+      await setSyncDirectory(inputValue.trim())
+      setSyncDir(inputValue.trim())
+      setStatus('success')
+      setErrorMsg('')
+      await loadItems()
+    } catch (e: any) {
+      setStatus('error')
+      setErrorMsg(e.toString())
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={inputValue}
+          onChange={(e) => { setInputValue(e.target.value); setStatus('idle') }}
+          placeholder="例如: D:\OneDrive\OneClip"
+          className="flex-1 px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-200
+                     dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200
+                     focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button
+          onClick={handleSetDirectory}
+          className="px-3 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600
+                     transition-colors flex items-center gap-1"
+        >
+          <FolderOpen className="w-4 h-4" />
+          <span>设置</span>
+        </button>
+      </div>
+      {status === 'success' && (
+        <div className="flex items-center gap-1 mt-2 text-xs text-green-600 dark:text-green-400">
+          <Check className="w-3 h-3" />
+          <span>已连接到数据目录</span>
+        </div>
+      )}
+      {status === 'error' && (
+        <div className="mt-2 text-xs text-red-500">{errorMsg}</div>
+      )}
+      {syncDir && status !== 'error' && (
+        <div className="mt-2 text-xs text-gray-500 dark:text-gray-400 truncate">
+          当前: {syncDir}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// 开机自启动组件
+function AutostartToggle({ Toggle, renderSettingItem }: {
+  Toggle: React.FC<{ checked: boolean; onChange: (v: boolean) => void }>,
+  renderSettingItem: (label: string, desc: string, control: React.ReactNode) => React.ReactNode
+}) {
+  const [enabled, setEnabled] = useState(false)
+
+  useEffect(() => {
+    getAutostart().then(setEnabled).catch(() => {})
+  }, [])
+
+  const handleChange = async (value: boolean) => {
+    try {
+      await setAutostart(value)
+      setEnabled(value)
+    } catch (e) {
+      console.error('设置自启动失败:', e)
+    }
+  }
+
+  return renderSettingItem(
+    '开机自启动',
+    '系统启动时自动运行 OneClip',
+    <Toggle checked={enabled} onChange={handleChange} />
+  )
+}
+
+// 排除应用管理组件
+function ExcludedAppsManager({
+  excludedApps,
+  addExcludedApp,
+  removeExcludedApp
+}: {
+  excludedApps: string[]
+  addExcludedApp: (app: string) => void
+  removeExcludedApp: (app: string) => void
+}) {
+  const [newApp, setNewApp] = useState('')
+
+  const handleAdd = async () => {
+    const app = newApp.trim()
+    if (!app) return
+    addExcludedApp(app)
+    setNewApp('')
+    // 同步到后端
+    try {
+      await setExcludedApps([...excludedApps, app])
+    } catch (e) {
+      console.error('设置排除应用失败:', e)
+    }
+  }
+
+  const handleRemove = async (app: string) => {
+    removeExcludedApp(app)
+    // 同步到后端
+    try {
+      await setExcludedApps(excludedApps.filter(a => a !== app))
+    } catch (e) {
+      console.error('设置排除应用失败:', e)
+    }
+  }
+
+  return (
+    <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+      <div className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
+        排除应用
+      </div>
+      <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+        来自这些应用的复制内容将不会被记录
+      </div>
+
+      {/* 添加新应用 */}
+      <div className="flex gap-2 mb-3">
+        <input
+          type="text"
+          value={newApp}
+          onChange={(e) => setNewApp(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          placeholder="输入应用名称，如 Chrome"
+          className="flex-1 px-3 py-1.5 text-sm bg-white dark:bg-gray-700 border border-gray-200
+                     dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200
+                     focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+        <button
+          onClick={handleAdd}
+          className="px-3 py-1.5 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600
+                     transition-colors flex items-center gap-1"
+        >
+          <Plus className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* 已排除的应用列表 */}
+      {excludedApps.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {excludedApps.map((app) => (
+            <span
+              key={app}
+              className="inline-flex items-center gap-1 px-2 py-1 bg-gray-200 dark:bg-gray-600
+                         text-gray-700 dark:text-gray-200 text-xs rounded-full"
+            >
+              {app}
+              <button
+                onClick={() => handleRemove(app)}
+                className="hover:text-red-500 transition-colors"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="text-xs text-gray-400 dark:text-gray-500">
+          暂无排除的应用
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface SettingsPanelProps {
   isOpen: boolean
@@ -49,11 +251,20 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     globalShortcut,
     setGlobalShortcut,
     monitorEnabled,
-    setMonitorEnabled,
+    setMonitorEnabled: setMonitorEnabled_store,
+    autoPaste,
+    setAutoPaste,
+    pasteAsPlain,
+    setPasteAsPlain,
+    windowPosition,
+    setWindowPosition,
+    excludedApps,
+    addExcludedApp,
+    removeExcludedApp,
     resetSettings,
   } = useSettingsStore()
-  
-  const { clearHistory, items } = useClipboardStore()
+
+  const { clearHistory, items, loadItems } = useClipboardStore()
 
   if (!isOpen) return null
 
@@ -208,17 +419,87 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         )
 
       case 'behavior':
+        // 处理监控开关变化
+        const handleMonitorChange = async (enabled: boolean) => {
+          setMonitorEnabled_store(enabled)
+          try {
+            await setMonitorEnabled(enabled)
+          } catch (e) {
+            console.error('设置监控开关失败:', e)
+          }
+        }
+
+        // 处理最大历史数量变化
+        const handleMaxHistoryChange = async (count: number) => {
+          setMaxHistoryCount(count)
+          try {
+            const deleted = await limitHistoryCount(count)
+            if (deleted > 0) {
+              loadItems() // 重新加载列表
+            }
+          } catch (e) {
+            console.error('限制历史数量失败:', e)
+          }
+        }
+
+        // 处理自动清理天数变化
+        const handleAutoClearChange = async (days: number) => {
+          setAutoClearDays(days)
+          if (days > 0) {
+            try {
+              const deleted = await cleanupExpired(days)
+              if (deleted > 0) {
+                loadItems() // 重新加载列表
+              }
+            } catch (e) {
+              console.error('清理过期记录失败:', e)
+            }
+          }
+        }
+
         return (
           <div>
+            <AutostartToggle Toggle={Toggle} renderSettingItem={renderSettingItem} />
             {renderSettingItem(
               '剪贴板监控',
               '自动记录复制的内容',
-              <Toggle checked={monitorEnabled} onChange={setMonitorEnabled} />
+              <Toggle checked={monitorEnabled} onChange={handleMonitorChange} />
+            )}
+            {renderSettingItem(
+              '自动粘贴',
+              '选择触发粘贴的方式',
+              <Select
+                value={autoPaste}
+                options={[
+                  { value: 'none', label: '不自动粘贴' },
+                  { value: 'single', label: '单击粘贴' },
+                  { value: 'double', label: '双击粘贴' },
+                ]}
+                onChange={setAutoPaste}
+              />
+            )}
+            {renderSettingItem(
+              '粘贴为纯文本',
+              '粘贴时去除格式',
+              <Toggle checked={pasteAsPlain} onChange={setPasteAsPlain} />
             )}
             {renderSettingItem(
               '音效提示',
               '操作时播放提示音',
               <Toggle checked={soundEnabled} onChange={setSoundEnabled} />
+            )}
+            {renderSettingItem(
+              '窗口位置',
+              '窗口显示的位置',
+              <Select
+                value={windowPosition}
+                options={[
+                  { value: 'cursor', label: '跟随光标' },
+                  { value: 'center', label: '屏幕居中' },
+                  { value: 'remember', label: '记住位置' },
+                ]}
+                onChange={(v) => setWindowPosition(v as any)}
+              />
             )}
             {renderSettingItem(
               '最大历史数量',
@@ -231,7 +512,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   { value: 1000, label: '1000 条' },
                   { value: 5000, label: '5000 条' },
                 ]}
-                onChange={(v) => setMaxHistoryCount(Number(v))}
+                onChange={(v) => handleMaxHistoryChange(Number(v))}
               />
             )}
             {renderSettingItem(
@@ -245,26 +526,86 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   { value: 30, label: '30 天' },
                   { value: 90, label: '90 天' },
                 ]}
-                onChange={(v) => setAutoClearDays(Number(v))}
+                onChange={(v) => handleAutoClearChange(Number(v))}
               />
             )}
+
+            {/* 排除应用设置 */}
+            <ExcludedAppsManager
+              excludedApps={excludedApps}
+              addExcludedApp={addExcludedApp}
+              removeExcludedApp={removeExcludedApp}
+            />
           </div>
         )
 
       case 'data':
+        // 计算统计数据
+        const stats = {
+          total: items.length,
+          text: items.filter(i => i.type === 'text').length,
+          image: items.filter(i => i.type === 'image').length,
+          url: items.filter(i => i.type === 'url').length,
+          file: items.filter(i => i.type === 'file').length,
+          pinned: items.filter(i => i.isPinned).length,
+          favorite: items.filter(i => i.isFavorite).length,
+        }
+
         return (
           <div>
+            {/* 同步目录设置 */}
+            <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg mb-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Cloud className="w-4 h-4 text-blue-500" />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                  数据同步目录
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                选择 Mac 版 OneClip 数据目录（通过云盘同步），实现跨设备数据互通
+              </p>
+              <SyncDirectorySelector />
+            </div>
+
+            {/* 数据统计 - 借鉴 EcoPaste */}
             <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg mb-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                    剪贴板记录
-                  </div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    当前共 {items.length} 条记录
-                  </div>
+              <div className="flex items-center gap-2 mb-3">
+                <Monitor className="w-4 h-4 text-gray-500" />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                  数据统计
+                </span>
+              </div>
+              <div className="grid grid-cols-4 gap-3">
+                <div className="text-center p-2 bg-white dark:bg-gray-700 rounded-lg">
+                  <div className="text-lg font-semibold text-gray-800 dark:text-gray-100">{stats.total}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">总计</div>
                 </div>
-                <Monitor className="w-8 h-8 text-gray-400" />
+                <div className="text-center p-2 bg-white dark:bg-gray-700 rounded-lg">
+                  <div className="text-lg font-semibold text-blue-500">{stats.text}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">文本</div>
+                </div>
+                <div className="text-center p-2 bg-white dark:bg-gray-700 rounded-lg">
+                  <div className="text-lg font-semibold text-green-500">{stats.image}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">图片</div>
+                </div>
+                <div className="text-center p-2 bg-white dark:bg-gray-700 rounded-lg">
+                  <div className="text-lg font-semibold text-purple-500">{stats.url}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">链接</div>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mt-3">
+                <div className="text-center p-2 bg-white dark:bg-gray-700 rounded-lg">
+                  <div className="text-lg font-semibold text-orange-500">{stats.file}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">文件</div>
+                </div>
+                <div className="text-center p-2 bg-white dark:bg-gray-700 rounded-lg">
+                  <div className="text-lg font-semibold text-primary-500">{stats.pinned}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">置顶</div>
+                </div>
+                <div className="text-center p-2 bg-white dark:bg-gray-700 rounded-lg">
+                  <div className="text-lg font-semibold text-yellow-500">{stats.favorite}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">收藏</div>
+                </div>
               </div>
             </div>
 
@@ -274,7 +615,7 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   clearHistory()
                 }
               }}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5
                          bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400
                          rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
             >

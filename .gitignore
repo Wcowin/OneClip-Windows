@@ -1,0 +1,76 @@
+# ============ Dependencies ============
+node_modules/
+.pnp
+.pnp.js
+
+# ============ Build Output ============
+dist/
+dist-ssr/
+*.local
+
+# ============ Tauri ============
+src-tauri/target/
+src-tauri/Cargo.lock
+
+# ============ IDE / Editor ============
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# ============ OS Generated ============
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# ============ Logs ============
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ============ Environment ============
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ============ Testing ============
+coverage/
+.nyc_output/
+
+# ============ Cache ============
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+
+# ============ Temporary Files ============
+tmp/
+temp/
+*.tmp
+*.temp
+
+# ============ Reference Projects (Development Only) ============
+OneClip-Mac/
+EcoPaste-master/
+
+# ============ Claude Code ============
+.claude/
+
+# ============ Local Data (User Data) ============
+# Uncomment if you don't want to track user data during development
+# *.db
+# *.sqlite

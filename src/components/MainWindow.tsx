@@ -13,7 +13,7 @@ interface MainWindowProps {
  * 包含分类标签和剪贴板列表
  */
 export default function MainWindow({ onEdit }: MainWindowProps) {
-  const { filteredItems, selectedIndex, setSelectedIndex } = useClipboardStore()
+  const { filteredItems, selectedIndex, setSelectedIndex, searchKeyword } = useClipboardStore()
   const { viewMode } = useSettingsStore()
 
   return (
@@ -29,6 +29,7 @@ export default function MainWindow({ onEdit }: MainWindowProps) {
           onSelect={setSelectedIndex}
           viewMode={viewMode}
           onEdit={onEdit}
+          searchKeyword={searchKeyword}
         />
       </div>
 

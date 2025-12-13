@@ -3,8 +3,8 @@ name = "oneclip-windows"
 version = "1.0.0"
 description = "OneClip - 智能剪贴板管理工具 Windows 版"
 authors = ["Wcowin <vip@oneclip.cloud>"]
-license = "UNLICENSED"
-repository = ""
+license = "MIT"
+repository = "https://github.com/Wcowin/OneClip-Windows"
 edition = "2021"
 
 [build-dependencies]
@@ -18,6 +18,10 @@ tauri-plugin-clipboard-manager = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-notification = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-log = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
 
 # 序列化
 serde = { version = "1", features = ["derive"] }
@@ -47,7 +51,7 @@ enigo = "0.2"
 
 # Windows 平台依赖
 [target.'cfg(target_os = "windows")'.dependencies]
-winapi = { version = "0.3", features = ["winuser", "windef", "minwindef"] }
+winapi = { version = "0.3", features = ["winuser", "windef", "minwindef", "wingdi", "winbase", "processthreadsapi", "psapi", "handleapi", "shellapi"] }
 
 [features]
 default = ["custom-protocol"]
