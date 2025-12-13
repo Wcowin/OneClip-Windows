@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/oneclip.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OneClip</title>
+    <style>
+      /* 禁用文本选择，让应用更像原生 */
+      body {
+        user-select: none;
+        -webkit-user-select: none;
+        overflow: hidden;
+      }
+      /* 允许在特定区域选择文本 */
+      .selectable {
+        user-select: text;
+        -webkit-user-select: text;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

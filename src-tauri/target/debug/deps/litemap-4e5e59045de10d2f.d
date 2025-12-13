@@ -1,0 +1,10 @@
+C:\Users\wangkewen\Desktop\OneClipProMax\OneClip-Windows\src-tauri\target\debug\deps\litemap-4e5e59045de10d2f.d: C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\lib.rs C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\map.rs C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\store\mod.rs C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\store\slice_impl.rs
+
+C:\Users\wangkewen\Desktop\OneClipProMax\OneClip-Windows\src-tauri\target\debug\deps\liblitemap-4e5e59045de10d2f.rlib: C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\lib.rs C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\map.rs C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\store\mod.rs C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\store\slice_impl.rs
+
+C:\Users\wangkewen\Desktop\OneClipProMax\OneClip-Windows\src-tauri\target\debug\deps\liblitemap-4e5e59045de10d2f.rmeta: C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\lib.rs C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\map.rs C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\store\mod.rs C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\store\slice_impl.rs
+
+C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\lib.rs:
+C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\map.rs:
+C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\store\mod.rs:
+C:\Users\wangkewen\.cargo\registry\src\mirrors.ustc.edu.cn-38d0e5eb5da2abae\litemap-0.8.1\src\store\slice_impl.rs:

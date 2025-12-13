@@ -1,0 +1,54 @@
+[package]
+name = "oneclip-windows"
+version = "1.0.0"
+description = "OneClip - 智能剪贴板管理工具 Windows 版"
+authors = ["Wcowin <vip@oneclip.cloud>"]
+license = "UNLICENSED"
+repository = ""
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri 核心
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-notification = "2"
+
+# 序列化
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# 数据库
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# 异步运行时
+tokio = { version = "1", features = ["full"] }
+
+# 时间处理
+chrono = { version = "0.4", features = ["serde"] }
+
+# 唯一ID生成
+uuid = { version = "1", features = ["v4"] }
+
+# 图片处理
+image = "0.24"
+
+# 日志
+log = "0.4"
+env_logger = "0.11"
+
+# 键盘模拟（用于粘贴）
+enigo = "0.2"
+
+# Windows 平台依赖
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3", features = ["winuser", "windef", "minwindef"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
