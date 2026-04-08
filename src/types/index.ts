@@ -83,6 +83,7 @@ export interface Settings {
 
   // 快捷键
   globalShortcut: string
+  quickPasteShortcut: string
 
   // 监控
   monitorEnabled: boolean

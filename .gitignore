@@ -74,3 +74,6 @@ EcoPaste-master/
 # Uncomment if you don't want to track user data during development
 # *.db
 # *.sqlite
+
+# ============ Local Secrets ============
+.secrets/

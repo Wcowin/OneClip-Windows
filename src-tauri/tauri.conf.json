@@ -24,6 +24,20 @@
         "visible": false,
         "minWidth": 320,
         "minHeight": 400
+      },
+      {
+        "label": "quick-paste",
+        "title": "OneClip Quick Paste",
+        "width": 440,
+        "height": 360,
+        "resizable": false,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": true,
+        "visible": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": true
       }
     ],
     "trayIcon": {
@@ -36,7 +50,11 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "nsis"],
+    "createUpdaterArtifacts": true,
+    "targets": [
+      "msi",
+      "nsis"
+    ],
     "icon": [
       "icons/icon.ico",
       "icons/icon.png",
@@ -61,8 +79,20 @@
       "macosLaunchAgent": false
     },
     "notification": {},
+    "updater": {
+      "endpoints": [
+        "https://github.com/Wcowin/OneClip-Windows/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc1QUVCMDUzMDJDNUI2NjUKUldSbHRzVUNVN0N1ZFdERTNpdGtEdjBQbWJEOFpsVEZOWWNHenVQVzNVYU5jZFZmbFdYT1Z3NGkK",
+      "windows": {
+        "installMode": "passive"
+      }
+    },
     "fs": {
-      "scope": ["$APPDATA/**", "$HOME/**"]
+      "scope": [
+        "$APPDATA/**",
+        "$HOME/**"
+      ]
     },
     "dialog": {
       "open": true,

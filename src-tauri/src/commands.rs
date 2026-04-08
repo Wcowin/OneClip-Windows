@@ -7,8 +7,10 @@
 //
 
 use tauri::{AppHandle, Manager};
+use tauri_plugin_updater::UpdaterExt;
 use crate::clipboard::ClipboardItem;
 use crate::database;
+use crate::sync::ChangeOperation;
 
 /// 获取剪贴板历史
 #[tauri::command]
@@ -28,7 +30,17 @@ pub fn add_clipboard_item(app_handle: AppHandle, item: ClipboardItem) -> Result<
         .map_err(|e| format!("数据库连接失败: {}", e))?;
     
     database::insert_item(&conn, &item)
-        .map_err(|e| format!("添加项目失败: {}", e))
+        .map_err(|e| format!("添加项目失败: {}", e))?;
+
+    let _ = crate::sync::record_change(
+        &item.id,
+        ChangeOperation::Insert,
+        Some(&item),
+        None,
+        None,
+    );
+
+    Ok(())
 }
 
 /// 删除剪贴板项目
@@ -38,7 +50,17 @@ pub fn delete_clipboard_item(app_handle: AppHandle, id: String) -> Result<(), St
         .map_err(|e| format!("数据库连接失败: {}", e))?;
     
     database::delete_item(&conn, &id)
-        .map_err(|e| format!("删除项目失败: {}", e))
+        .map_err(|e| format!("删除项目失败: {}", e))?;
+
+    let _ = crate::sync::record_change(
+        &id,
+        ChangeOperation::Delete,
+        None,
+        None,
+        None,
+    );
+
+    Ok(())
 }
 
 /// 切换置顶状态
@@ -48,7 +70,17 @@ pub fn toggle_pin(app_handle: AppHandle, id: String, is_pinned: bool) -> Result<
         .map_err(|e| format!("数据库连接失败: {}", e))?;
     
     database::update_pinned(&conn, &id, is_pinned)
-        .map_err(|e| format!("更新置顶状态失败: {}", e))
+        .map_err(|e| format!("更新置顶状态失败: {}", e))?;
+
+    let _ = crate::sync::record_change(
+        &id,
+        ChangeOperation::Pin,
+        None,
+        None,
+        Some(is_pinned),
+    );
+
+    Ok(())
 }
 
 /// 切换收藏状态
@@ -58,7 +90,17 @@ pub fn toggle_favorite(app_handle: AppHandle, id: String, is_favorite: bool) -> 
         .map_err(|e| format!("数据库连接失败: {}", e))?;
     
     database::update_favorite(&conn, &id, is_favorite)
-        .map_err(|e| format!("更新收藏状态失败: {}", e))
+        .map_err(|e| format!("更新收藏状态失败: {}", e))?;
+
+    let _ = crate::sync::record_change(
+        &id,
+        ChangeOperation::Favorite,
+        None,
+        Some(is_favorite),
+        None,
+    );
+
+    Ok(())
 }
 
 /// 清空历史
@@ -66,16 +108,32 @@ pub fn toggle_favorite(app_handle: AppHandle, id: String, is_favorite: bool) -> 
 pub fn clear_history(app_handle: AppHandle) -> Result<(), String> {
     let conn = database::get_connection(&app_handle)
         .map_err(|e| format!("数据库连接失败: {}", e))?;
-    
+
+    let deleted_ids = database::get_clearable_item_ids(&conn)
+        .map_err(|e| format!("查询待清理项目失败: {}", e))?;
+
     database::clear_history(&conn)
-        .map_err(|e| format!("清空历史失败: {}", e))
+        .map_err(|e| format!("清空历史失败: {}", e))?;
+
+    for id in deleted_ids {
+        let _ = crate::sync::record_change(
+            &id,
+            ChangeOperation::Delete,
+            None,
+            None,
+            None,
+        );
+    }
+
+    Ok(())
 }
 
 /// 粘贴项目
 #[tauri::command]
 pub async fn paste_item(app_handle: AppHandle, content: String, item_type: String, image_path: Option<String>) -> Result<(), String> {
+    let content_preview: String = content.chars().take(50).collect();
     log::info!("粘贴内容: {} (类型: {})",
-        if content.len() > 50 { &content[..50] } else { &content },
+        content_preview,
         item_type
     );
 
@@ -89,6 +147,8 @@ pub async fn paste_item(app_handle: AppHandle, content: String, item_type: Strin
             }
         }
     }
+    #[cfg(not(target_os = "windows"))]
+    let _ = &image_path;
 
     // 2. 隐藏窗口
     if let Some(window) = app_handle.get_webview_window("main") {
@@ -281,7 +341,19 @@ pub fn update_note(app_handle: AppHandle, id: String, note: Option<String>) -> R
         .map_err(|e| format!("数据库连接失败: {}", e))?;
 
     database::update_note(&conn, &id, note.as_deref())
-        .map_err(|e| format!("更新备注失败: {}", e))
+        .map_err(|e| format!("更新备注失败: {}", e))?;
+
+    if let Ok(Some(item)) = database::get_item_by_id(&conn, &id) {
+        let _ = crate::sync::record_change(
+            &id,
+            ChangeOperation::Update,
+            Some(&item),
+            None,
+            None,
+        );
+    }
+
+    Ok(())
 }
 
 /// 更新内容（编辑功能）
@@ -291,7 +363,19 @@ pub fn update_content(app_handle: AppHandle, id: String, content: String) -> Res
         .map_err(|e| format!("数据库连接失败: {}", e))?;
 
     database::update_content(&conn, &id, &content)
-        .map_err(|e| format!("更新内容失败: {}", e))
+        .map_err(|e| format!("更新内容失败: {}", e))?;
+
+    if let Ok(Some(item)) = database::get_item_by_id(&conn, &id) {
+        let _ = crate::sync::record_change(
+            &id,
+            ChangeOperation::Update,
+            Some(&item),
+            None,
+            None,
+        );
+    }
+
+    Ok(())
 }
 
 /// 清理过期记录（借鉴 EcoPaste 的 Duration 功能）
@@ -304,8 +388,23 @@ pub fn cleanup_expired(app_handle: AppHandle, days: i32) -> Result<i32, String> 
     let conn = database::get_connection(&app_handle)
         .map_err(|e| format!("数据库连接失败: {}", e))?;
 
-    database::cleanup_expired(&conn, days)
-        .map_err(|e| format!("清理过期记录失败: {}", e))
+    let deleted_ids = database::get_expired_item_ids(&conn, days)
+        .map_err(|e| format!("查询过期项目失败: {}", e))?;
+
+    let deleted = database::cleanup_expired(&conn, days)
+        .map_err(|e| format!("清理过期记录失败: {}", e))?;
+
+    for id in deleted_ids {
+        let _ = crate::sync::record_change(
+            &id,
+            ChangeOperation::Delete,
+            None,
+            None,
+            None,
+        );
+    }
+
+    Ok(deleted)
 }
 
 /// 设置剪贴板监控开关
@@ -332,6 +431,94 @@ pub fn limit_history_count(app_handle: AppHandle, max_count: i32) -> Result<i32,
     let conn = database::get_connection(&app_handle)
         .map_err(|e| format!("数据库连接失败: {}", e))?;
 
-    database::limit_history_count(&conn, max_count)
-        .map_err(|e| format!("限制历史数量失败: {}", e))
+    let deleted_ids = database::get_overflow_item_ids(&conn, max_count)
+        .map_err(|e| format!("查询超限项目失败: {}", e))?;
+
+    let deleted = database::limit_history_count(&conn, max_count)
+        .map_err(|e| format!("限制历史数量失败: {}", e))?;
+
+    for id in deleted_ids {
+        let _ = crate::sync::record_change(
+            &id,
+            ChangeOperation::Delete,
+            None,
+            None,
+            None,
+        );
+    }
+
+    Ok(deleted)
+}
+
+/// 设置全局快捷键（主窗口 + 快速粘贴）
+#[tauri::command]
+pub fn set_global_shortcuts(
+    app_handle: AppHandle,
+    global_shortcut: String,
+    quick_paste_shortcut: String,
+) -> Result<(), String> {
+    crate::shortcuts::update_shortcuts(&app_handle, global_shortcut, quick_paste_shortcut)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckResult {
+    pub available: bool,
+    pub version: Option<String>,
+    pub current_version: Option<String>,
+    pub notes: Option<String>,
+}
+
+/// 检查应用更新（GitHub Releases / latest.json）
+#[tauri::command]
+pub async fn check_for_updates(app_handle: AppHandle) -> Result<UpdateCheckResult, String> {
+    let current_version = app_handle.package_info().version.to_string();
+    let updater = app_handle
+        .updater()
+        .map_err(|e| format!("初始化更新器失败: {}", e))?;
+
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| format!("检查更新失败: {}", e))?;
+
+    if let Some(update) = update {
+        Ok(UpdateCheckResult {
+            available: true,
+            version: Some(update.version.clone()),
+            current_version: Some(update.current_version.clone()),
+            notes: update.body.clone(),
+        })
+    } else {
+        Ok(UpdateCheckResult {
+            available: false,
+            version: None,
+            current_version: Some(current_version),
+            notes: None,
+        })
+    }
+}
+
+/// 下载并安装更新
+#[tauri::command]
+pub async fn download_and_install_update(app_handle: AppHandle) -> Result<(), String> {
+    let updater = app_handle
+        .updater()
+        .map_err(|e| format!("初始化更新器失败: {}", e))?;
+
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| format!("检查更新失败: {}", e))?;
+
+    let Some(update) = update else {
+        return Ok(());
+    };
+
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| format!("下载或安装更新失败: {}", e))?;
+
+    Ok(())
 }

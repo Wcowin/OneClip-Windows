@@ -6,11 +6,12 @@
 //  通过 changes.jsonl 实现增量同步
 //
 
-use std::fs::{self, File, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use tauri::AppHandle;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use crate::clipboard::{ClipboardItem, ClipboardItemType};
 use crate::database;
 
@@ -18,11 +19,22 @@ use crate::database;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChangeOperation {
+    #[serde(rename = "insert")]
     Insert,
+    #[serde(rename = "update")]
     Update,
+    #[serde(rename = "delete")]
     Delete,
+    #[serde(rename = "favorite")]
     Favorite,
+    #[serde(rename = "pin")]
     Pin,
+    #[serde(rename = "categoryInsert", alias = "categoryinsert")]
+    CategoryInsert,
+    #[serde(rename = "categoryUpdate", alias = "categoryupdate")]
+    CategoryUpdate,
+    #[serde(rename = "categoryDelete", alias = "categorydelete")]
+    CategoryDelete,
 }
 
 /// 同步变更记录（与 Mac 版兼容）
@@ -34,13 +46,15 @@ pub struct SyncChange {
     #[serde(rename = "op")]
     pub operation: ChangeOperation,
     #[serde(rename = "ts")]
-    pub timestamp: i64,  // 毫秒时间戳
+    pub timestamp: f64,  // 毫秒时间戳（兼容浮点）
     #[serde(rename = "device")]
     pub device_id: String,
     #[serde(rename = "device_name")]
     pub device_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<ClipboardItem>,
+    pub data: Option<Value>,
+    #[serde(rename = "category_data", skip_serializing_if = "Option::is_none")]
+    pub category_data: Option<Value>,
     #[serde(rename = "isFavorite", skip_serializing_if = "Option::is_none")]
     pub is_favorite: Option<bool>,
     #[serde(rename = "isPinned", skip_serializing_if = "Option::is_none")]
@@ -74,6 +88,96 @@ fn get_changes_file_path() -> Option<PathBuf> {
     database::get_sync_directory().map(|dir| dir.join("changes.jsonl"))
 }
 
+fn sync_value_to_item(value: &Value) -> Option<ClipboardItem> {
+    let id = value.get("id")?.as_str()?.to_string();
+    let type_str = value.get("type")?.as_str()?.to_lowercase();
+    let item_type = match type_str.as_str() {
+        "text" => ClipboardItemType::Text,
+        "image" => ClipboardItemType::Image,
+        "file" | "files" | "video" | "audio" => ClipboardItemType::File,
+        "url" => ClipboardItemType::Url,
+        "color" => ClipboardItemType::Color,
+        "rtf" => ClipboardItemType::Rtf,
+        _ => ClipboardItemType::Text,
+    };
+
+    let content = value
+        .get("content")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    let timestamp_ms = if let Some(ts) = value.get("timestamp") {
+        if let Some(n) = ts.as_f64() {
+            if n > 10_000_000_000.0 { n as i64 } else { (n * 1000.0) as i64 }
+        } else if let Some(s) = ts.as_str() {
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+                dt.timestamp_millis()
+            } else {
+                chrono::Utc::now().timestamp_millis()
+            }
+        } else {
+            chrono::Utc::now().timestamp_millis()
+        }
+    } else {
+        chrono::Utc::now().timestamp_millis()
+    };
+
+    let source_app = value
+        .get("sourceAppName")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| value.get("source_app").and_then(|v| v.as_str()).map(|s| s.to_string()));
+
+    let is_pinned = value
+        .get("isPinned")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let is_favorite = value
+        .get("isFavorite")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let file_path = value
+        .get("filePath")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| value.get("file_path").and_then(|v| v.as_str()).map(|s| s.to_string()));
+
+    let title = value.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let image_path = value
+        .get("imagePath")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| file_path.clone());
+    let is_image = item_type == ClipboardItemType::Image;
+
+    Some(ClipboardItem {
+        id,
+        item_type: item_type.clone(),
+        content,
+        preview: None,
+        timestamp: timestamp_ms,
+        source_app,
+        is_pinned,
+        is_favorite,
+        is_quick_reply: false,
+        category: value.get("smartCategory").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        note: title,
+        image_width: None,
+        image_height: None,
+        image_path: if is_image { image_path } else { None },
+        thumbnail_path: None,
+        file_name: None,
+        file_size: None,
+        file_path,
+        color_hex: None,
+        color_rgb: None,
+        url_title: None,
+        url_favicon: None,
+    })
+}
+
 /// 记录变更到 changes.jsonl
 pub fn record_change(
     item_id: &str,
@@ -99,10 +203,11 @@ pub fn record_change(
         id: uuid::Uuid::new_v4().to_string(),
         item_id: item_id.to_string(),
         operation,
-        timestamp: chrono::Utc::now().timestamp_millis(),
+        timestamp: chrono::Utc::now().timestamp_millis() as f64,
         device_id: get_device_id(),
         device_name: Some(get_device_name()),
-        data: data.cloned(),
+        data: data.and_then(|item| serde_json::to_value(item).ok()),
+        category_data: None,
         is_favorite,
         is_pinned,
     };
@@ -139,13 +244,22 @@ pub fn apply_remote_changes(app_handle: &AppHandle) -> Result<i32, String> {
         .map_err(|e| format!("数据库连接失败: {}", e))?;
 
     // 获取最后同步时间戳
-    let last_sync_ts: i64 = conn
+    let mut last_sync_ts: f64 = conn
         .query_row(
-            "SELECT COALESCE(CAST(value AS INTEGER), 0) FROM settings WHERE key = 'last_sync_ts'",
+            "SELECT COALESCE(CAST(value AS REAL), 0) FROM sync_status WHERE key = 'last_sync_timestamp'",
             [],
             |row| row.get(0),
         )
-        .unwrap_or(0);
+        .unwrap_or(0.0);
+    if last_sync_ts <= 0.0 {
+        last_sync_ts = conn
+            .query_row(
+                "SELECT COALESCE(CAST(value AS REAL), 0) FROM settings WHERE key = 'last_sync_ts'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0.0);
+    }
 
     let file = File::open(&changes_file)
         .map_err(|e| format!("无法打开 changes.jsonl: {}", e))?;
@@ -153,6 +267,7 @@ pub fn apply_remote_changes(app_handle: &AppHandle) -> Result<i32, String> {
 
     let device_id = get_device_id();
     let mut applied_count = 0;
+    let mut latest_applied_ts = last_sync_ts;
 
     for line in reader.lines() {
         let line = match line {
@@ -186,14 +301,17 @@ pub fn apply_remote_changes(app_handle: &AppHandle) -> Result<i32, String> {
         }
 
         applied_count += 1;
+        if change.timestamp > latest_applied_ts {
+            latest_applied_ts = change.timestamp;
+        }
     }
 
     // 更新最后同步时间戳
     if applied_count > 0 {
-        let now = chrono::Utc::now().timestamp_millis();
         let _ = conn.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES ('last_sync_ts', ?1)",
-            [now.to_string()],
+            "INSERT OR REPLACE INTO sync_status (key, value, updated_at)
+             VALUES ('last_sync_timestamp', ?1, julianday('now'))",
+            [latest_applied_ts.to_string()],
         );
         log::info!("已应用 {} 条远程变更", applied_count);
     }
@@ -205,13 +323,16 @@ pub fn apply_remote_changes(app_handle: &AppHandle) -> Result<i32, String> {
 fn apply_single_change(conn: &rusqlite::Connection, change: &SyncChange) -> Result<(), String> {
     match change.operation {
         ChangeOperation::Insert | ChangeOperation::Update => {
-            if let Some(item) = &change.data {
+            if let Some(value) = &change.data {
+                let Some(item) = sync_value_to_item(value) else {
+                    return Ok(());
+                };
                 // 只同步文本和图片
                 match item.item_type {
                     ClipboardItemType::Text | ClipboardItemType::Image => {}
                     _ => return Ok(()),
                 }
-                database::insert_item(conn, item)
+                database::insert_item(conn, &item)
                     .map_err(|e| format!("插入项目失败: {}", e))?;
             }
         }
@@ -231,6 +352,41 @@ fn apply_single_change(conn: &rusqlite::Connection, change: &SyncChange) -> Resu
                     .map_err(|e| format!("更新置顶状态失败: {}", e))?;
             }
         }
+        ChangeOperation::CategoryInsert
+        | ChangeOperation::CategoryUpdate
+        | ChangeOperation::CategoryDelete => {
+            apply_category_change(conn, change)?;
+        }
     }
+    Ok(())
+}
+
+fn apply_category_change(conn: &rusqlite::Connection, change: &SyncChange) -> Result<(), String> {
+    match change.operation {
+        ChangeOperation::CategoryDelete => {
+            database::delete_custom_category(conn, &change.item_id)
+                .map_err(|e| format!("删除分类失败: {}", e))?;
+        }
+        ChangeOperation::CategoryInsert | ChangeOperation::CategoryUpdate => {
+            let payload = change
+                .category_data
+                .as_ref()
+                .or(change.data.as_ref());
+
+            let Some(payload) = payload else {
+                log::debug!(
+                    "分类变更缺少 payload，已忽略: {:?} {}",
+                    change.operation,
+                    change.item_id
+                );
+                return Ok(());
+            };
+
+            database::upsert_custom_category(conn, payload, Some(&change.item_id))
+                .map_err(|e| format!("更新分类失败: {}", e))?;
+        }
+        _ => {}
+    }
+
     Ok(())
 }

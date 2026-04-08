@@ -18,7 +18,7 @@ interface TextEditorProps {
 }
 
 export default function TextEditor({ item, isOpen, onClose }: TextEditorProps) {
-  const { updateItem } = useClipboardStore()
+  const { updateContent } = useClipboardStore()
   const [content, setContent] = useState('')
   const [originalContent, setOriginalContent] = useState('')
   const [hasChanges, setHasChanges] = useState(false)
@@ -48,7 +48,7 @@ export default function TextEditor({ item, isOpen, onClose }: TextEditorProps) {
   // 保存编辑
   const handleSave = () => {
     if (!hasChanges) return
-    updateItem(item.id, { content })
+    updateContent(item.id, content)
     setOriginalContent(content)
     setHasChanges(false)
     onClose()

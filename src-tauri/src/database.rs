@@ -7,16 +7,19 @@
 //
 
 use rusqlite::{Connection, Result, params};
-use tauri::{AppHandle, Manager};
+use serde_json::Value;
+use tauri::{AppHandle, Manager, Runtime};
 use std::path::PathBuf;
 use std::sync::Mutex;
 use crate::clipboard::{ClipboardItem, ClipboardItemType};
 
 // 全局同步目录配置
 static SYNC_DIRECTORY: Mutex<Option<PathBuf>> = Mutex::new(None);
+const JULIAN_MIN: f64 = 2_000_000.0;
+const JULIAN_MAX: f64 = 3_000_000.0;
 
 /// 设置同步目录（迁移日期文件夹和 changes.jsonl，数据库保持本地）
-pub fn set_sync_directory(app_handle: &AppHandle, path: &str) -> Result<(), String> {
+pub fn set_sync_directory<R: Runtime>(app_handle: &AppHandle<R>, path: &str) -> Result<(), String> {
     let new_dir = PathBuf::from(path);
 
     // 确保目录存在
@@ -81,7 +84,7 @@ pub fn set_sync_directory(app_handle: &AppHandle, path: &str) -> Result<(), Stri
 }
 
 /// 加载同步目录设置（启动时调用）
-pub fn load_sync_directory(app_handle: &AppHandle) {
+pub fn load_sync_directory<R: Runtime>(app_handle: &AppHandle<R>) {
     if let Ok(conn) = get_connection(app_handle) {
         if let Ok(path) = conn.query_row::<String, _, _>(
             "SELECT value FROM settings WHERE key = 'sync_directory'",
@@ -118,7 +121,7 @@ pub fn get_sync_directory() -> Option<PathBuf> {
 }
 
 /// 获取数据库路径（始终在本地默认位置）
-fn get_database_path(app_handle: &AppHandle) -> PathBuf {
+fn get_database_path<R: Runtime>(app_handle: &AppHandle<R>) -> PathBuf {
     let app_data_dir = app_handle
         .path()
         .app_data_dir()
@@ -129,7 +132,7 @@ fn get_database_path(app_handle: &AppHandle) -> PathBuf {
 }
 
 /// 获取本地数据目录
-pub fn get_local_data_dir(app_handle: &AppHandle) -> PathBuf {
+pub fn get_local_data_dir<R: Runtime>(app_handle: &AppHandle<R>) -> PathBuf {
     app_handle.path().app_data_dir().expect("无法获取应用数据目录")
 }
 
@@ -144,7 +147,7 @@ pub fn get_image_directory() -> Option<PathBuf> {
 
 /// 初始化数据库
 /// 如果是新数据库，创建兼容 Mac 版的表结构
-pub fn init_database(app_handle: &AppHandle) -> Result<()> {
+pub fn init_database<R: Runtime>(app_handle: &AppHandle<R>) -> Result<()> {
     let db_path = get_database_path(app_handle);
     let conn = Connection::open(&db_path)?;
 
@@ -201,25 +204,208 @@ pub fn init_database(app_handle: &AppHandle) -> Result<()> {
         [],
     )?;
 
+    // 与 macOS 版保持一致：同步状态表
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sync_status (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at REAL DEFAULT (julianday('now'))
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sync_changes (
+            id TEXT PRIMARY KEY,
+            item_id TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            timestamp REAL NOT NULL,
+            device_id TEXT NOT NULL,
+            data TEXT,
+            is_favorite INTEGER,
+            is_pinned INTEGER,
+            synced INTEGER DEFAULT 0,
+            created_at REAL DEFAULT (julianday('now')),
+            device_name TEXT,
+            category_data TEXT
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS pending_sync_items (
+            id TEXT PRIMARY KEY,
+            item_id TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            timestamp REAL NOT NULL,
+            device_id TEXT NOT NULL,
+            device_name TEXT,
+            data TEXT,
+            is_favorite INTEGER,
+            is_pinned INTEGER,
+            category_data TEXT,
+            file_path TEXT,
+            expected_file_size INTEGER DEFAULT 0,
+            retry_count INTEGER DEFAULT 0,
+            received_at REAL DEFAULT (julianday('now')),
+            last_check_at REAL
+        )",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS custom_categories (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            icon TEXT NOT NULL DEFAULT 'folder',
+            color TEXT NOT NULL DEFAULT 'blue',
+            rules TEXT,
+            manual_items TEXT,
+            is_enabled INTEGER DEFAULT 1,
+            is_favorite_tag INTEGER DEFAULT 0,
+            sort_order INTEGER DEFAULT 0,
+            created_at REAL DEFAULT (julianday('now')),
+            updated_at REAL DEFAULT (julianday('now')),
+            is_permanent INTEGER DEFAULT 0,
+            parent_id TEXT,
+            allows_subcategories INTEGER DEFAULT 0
+        )",
+        [],
+    )?;
+
+    // 兼容扩展列（避免后续写入覆盖丢失）
+    conn.execute(
+        "ALTER TABLE clipboard_items ADD COLUMN ocr_text TEXT",
+        [],
+    ).ok();
+    conn.execute(
+        "ALTER TABLE clipboard_items ADD COLUMN source_url TEXT",
+        [],
+    ).ok();
+    conn.execute(
+        "ALTER TABLE clipboard_items ADD COLUMN raw_pasteboard_data BLOB",
+        [],
+    ).ok();
+    conn.execute(
+        "ALTER TABLE clipboard_items ADD COLUMN is_pasted INTEGER DEFAULT 0",
+        [],
+    ).ok();
+    conn.execute(
+        "ALTER TABLE clipboard_items ADD COLUMN has_rich_text_formatting INTEGER DEFAULT -1",
+        [],
+    ).ok();
+
+    // 时间戳统一迁移：历史 Julian Day 转为 Unix 秒，确保与 macOS 实库一致
+    conn.execute(
+        "UPDATE clipboard_items
+         SET timestamp = (timestamp - 2440587.5) * 86400.0
+         WHERE timestamp > ?1 AND timestamp < ?2",
+        params![JULIAN_MIN, JULIAN_MAX],
+    ).ok();
+
     log::info!("数据库初始化完成: {:?}", db_path);
     Ok(())
 }
 
 /// 获取数据库连接
-pub fn get_connection(app_handle: &AppHandle) -> Result<Connection> {
+pub fn get_connection<R: Runtime>(app_handle: &AppHandle<R>) -> Result<Connection> {
     let db_path = get_database_path(app_handle);
     Connection::open(&db_path)
 }
 
 /// 将 Julian Day 转换为毫秒时间戳
-fn julian_to_millis(julian: f64) -> i64 {
-    // Julian Day 2440587.5 = Unix epoch (1970-01-01 00:00:00)
-    ((julian - 2440587.5) * 86400.0 * 1000.0) as i64
+fn db_timestamp_to_millis(ts: f64) -> i64 {
+    if ts > JULIAN_MIN && ts < JULIAN_MAX {
+        // 兼容旧 Windows 数据（Julian Day）
+        ((ts - 2440587.5) * 86400.0 * 1000.0) as i64
+    } else {
+        // macOS/新 Windows 统一：Unix 秒
+        (ts * 1000.0) as i64
+    }
 }
 
-/// 将毫秒时间戳转换为 Julian Day
-fn millis_to_julian(millis: i64) -> f64 {
-    (millis as f64 / 1000.0 / 86400.0) + 2440587.5
+/// 将毫秒时间戳转换为 DB 时间戳（Unix 秒）
+fn millis_to_db_timestamp_seconds(millis: i64) -> f64 {
+    millis as f64 / 1000.0
+}
+
+fn map_row_to_clipboard_item(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipboardItem> {
+    let id: String = row.get(0)?;
+    let type_str: String = row.get(1)?;
+    let title: Option<String> = row.get(2)?;
+    let content: Option<String> = row.get(3)?;
+    let timestamp: f64 = row.get(4)?;
+    let source_app: Option<String> = row.get(5)?;
+    let is_pinned: i32 = row.get(6)?;
+    let is_favorite: i32 = row.get(7)?;
+    let file_path: Option<String> = row.get(8)?;
+    let category: Option<String> = row.get(9)?;
+
+    let item_type = match type_str.as_str() {
+        "text" => ClipboardItemType::Text,
+        "image" => ClipboardItemType::Image,
+        "file" | "files" => ClipboardItemType::File,
+        "video" | "audio" => ClipboardItemType::File,
+        "url" => ClipboardItemType::Url,
+        "color" => ClipboardItemType::Color,
+        "rtf" => ClipboardItemType::Rtf,
+        _ => ClipboardItemType::Text,
+    };
+
+    let display_content = content.unwrap_or_else(|| title.clone().unwrap_or_default());
+
+    let (image_path, thumbnail_path) = if item_type == ClipboardItemType::Image {
+        if let Some(ref fp) = file_path {
+            let thumb = fp.replace(".png", "_thumb.jpg")
+                          .replace(".jpg", "_thumb.jpg");
+            (Some(fp.clone()), Some(thumb))
+        } else {
+            (None, None)
+        }
+    } else {
+        (None, None)
+    };
+
+    let note = if item_type == ClipboardItemType::Url {
+        None
+    } else {
+        title.clone()
+    };
+    let url_title = if item_type == ClipboardItemType::Url {
+        title.clone()
+    } else {
+        None
+    };
+    let preview = if item_type == ClipboardItemType::Url {
+        None
+    } else {
+        title
+    };
+
+    Ok(ClipboardItem {
+        id,
+        item_type,
+        content: display_content,
+        preview,
+        timestamp: db_timestamp_to_millis(timestamp),
+        source_app,
+        is_pinned: is_pinned != 0,
+        is_favorite: is_favorite != 0,
+        is_quick_reply: false,
+        category,
+        note,
+        image_width: None,
+        image_height: None,
+        image_path,
+        thumbnail_path,
+        file_name: None,
+        file_size: None,
+        file_path,
+        color_hex: None,
+        color_rgb: None,
+        url_title,
+        url_favicon: None,
+    })
 }
 
 /// 获取所有剪贴板项目（兼容 Mac 版数据库）
@@ -233,72 +419,27 @@ pub fn get_all_items(conn: &Connection, limit: i32) -> Result<Vec<ClipboardItem>
          LIMIT ?1"
     )?;
 
-    let items = stmt.query_map([limit], |row| {
-        let id: String = row.get(0)?;
-        let type_str: String = row.get(1)?;
-        let title: Option<String> = row.get(2)?;
-        let content: Option<String> = row.get(3)?;
-        let timestamp: f64 = row.get(4)?;
-        let source_app: Option<String> = row.get(5)?;
-        let is_pinned: i32 = row.get(6)?;
-        let is_favorite: i32 = row.get(7)?;
-        let file_path: Option<String> = row.get(8)?;
-        let category: Option<String> = row.get(9)?;
-
-        // 转换类型
-        let item_type = match type_str.as_str() {
-            "text" => ClipboardItemType::Text,
-            "image" => ClipboardItemType::Image,
-            "file" | "files" => ClipboardItemType::File,
-            "url" => ClipboardItemType::Url,
-            "color" => ClipboardItemType::Color,
-            "rtf" => ClipboardItemType::Rtf,
-            _ => ClipboardItemType::Text,
-        };
-
-        // 内容：优先用 content，否则用 title
-        let display_content = content.unwrap_or_else(|| title.clone().unwrap_or_default());
-
-        // 图片路径处理
-        let (image_path, thumbnail_path) = if item_type == ClipboardItemType::Image {
-            if let Some(ref fp) = file_path {
-                let thumb = fp.replace(".png", "_thumb.jpg")
-                              .replace(".jpg", "_thumb.jpg");
-                (Some(fp.clone()), Some(thumb))
-            } else {
-                (None, None)
-            }
-        } else {
-            (None, None)
-        };
-
-        Ok(ClipboardItem {
-            id,
-            item_type,
-            content: display_content,
-            preview: title,
-            timestamp: julian_to_millis(timestamp),
-            source_app,
-            is_pinned: is_pinned != 0,
-            is_favorite: is_favorite != 0,
-            is_quick_reply: false,
-            category,
-            note: None,
-            image_width: None,
-            image_height: None,
-            image_path,
-            thumbnail_path,
-            file_name: None,
-            file_size: None,
-            file_path,
-            color_hex: None,
-            color_rgb: None,
-            url_title: None,
-            url_favicon: None,
-        })
-    })?;
+    let items = stmt.query_map([limit], map_row_to_clipboard_item)?;
 
     items.collect()
+}
+
+/// 根据 ID 获取单条剪贴板项目
+pub fn get_item_by_id(conn: &Connection, id: &str) -> Result<Option<ClipboardItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, type, title, content, timestamp, source_app,
+                is_pinned, is_favorite, file_path, smart_category
+         FROM clipboard_items
+         WHERE id = ?1
+         LIMIT 1"
+    )?;
+
+    let mut rows = stmt.query([id])?;
+    if let Some(row) = rows.next()? {
+        return Ok(Some(map_row_to_clipboard_item(row)?));
+    }
+
+    Ok(None)
 }
 
 /// 插入剪贴板项目（兼容 Mac 版格式）
@@ -312,19 +453,34 @@ pub fn insert_item(conn: &Connection, item: &ClipboardItem) -> Result<()> {
         ClipboardItemType::Rtf => "rtf",
     };
 
-    let timestamp_julian = millis_to_julian(item.timestamp);
+    let timestamp_seconds = millis_to_db_timestamp_seconds(item.timestamp);
+
+    let title_to_store = item.note.clone()
+        .or_else(|| item.url_title.clone())
+        .or_else(|| item.preview.clone());
 
     conn.execute(
-        "INSERT OR REPLACE INTO clipboard_items (
+        "INSERT INTO clipboard_items (
             id, type, title, content, timestamp, source_app,
-            is_pinned, is_favorite, file_path, smart_category
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            is_pinned, is_favorite, file_path, smart_category, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, julianday('now'))
+        ON CONFLICT(id) DO UPDATE SET
+            type = excluded.type,
+            title = excluded.title,
+            content = excluded.content,
+            timestamp = excluded.timestamp,
+            source_app = excluded.source_app,
+            is_pinned = excluded.is_pinned,
+            is_favorite = excluded.is_favorite,
+            file_path = excluded.file_path,
+            smart_category = excluded.smart_category,
+            updated_at = julianday('now')",
         params![
             item.id,
             item_type,
-            item.preview,
+            title_to_store,
             item.content,
-            timestamp_julian,
+            timestamp_seconds,
             item.source_app,
             item.is_pinned as i32,
             item.is_favorite as i32,
@@ -369,6 +525,18 @@ pub fn clear_history(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// 获取可被清空（非置顶非收藏）的项目 ID 列表
+pub fn get_clearable_item_ids(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT id FROM clipboard_items WHERE is_pinned = 0 AND is_favorite = 0"
+    )?;
+    let ids = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(ids)
+}
+
 /// 更新备注
 pub fn update_note(conn: &Connection, id: &str, note: Option<&str>) -> Result<()> {
     conn.execute(
@@ -402,18 +570,48 @@ pub fn update_content(conn: &Connection, id: &str, content: &str) -> Result<()> 
 /// 清理过期记录（保留置顶和收藏）
 /// 返回删除的记录数
 pub fn cleanup_expired(conn: &Connection, days: i32) -> Result<i32> {
-    // 计算过期时间点（Julian Day）
-    let cutoff_julian = millis_to_julian(
+    let cutoff_seconds = millis_to_db_timestamp_seconds(
         chrono::Utc::now().timestamp_millis() - (days as i64 * 24 * 60 * 60 * 1000)
     );
+    let cutoff_julian_compat = (cutoff_seconds / 86400.0) + 2440587.5;
     let deleted = conn.execute(
         "DELETE FROM clipboard_items
          WHERE is_pinned = 0 AND is_favorite = 0
-         AND timestamp < ?1",
-        params![cutoff_julian],
+         AND (
+            (timestamp <= ?1)
+            OR
+            (timestamp > ?2 AND timestamp < ?3 AND timestamp <= ?4)
+         )",
+        params![cutoff_seconds, JULIAN_MIN, JULIAN_MAX, cutoff_julian_compat],
     )?;
     log::info!("清理了 {} 条过期记录（超过 {} 天）", deleted, days);
     Ok(deleted as i32)
+}
+
+/// 获取超过指定天数且可删除（非置顶非收藏）的项目 ID 列表
+pub fn get_expired_item_ids(conn: &Connection, days: i32) -> Result<Vec<String>> {
+    let cutoff_seconds = millis_to_db_timestamp_seconds(
+        chrono::Utc::now().timestamp_millis() - (days as i64 * 24 * 60 * 60 * 1000)
+    );
+    let cutoff_julian_compat = (cutoff_seconds / 86400.0) + 2440587.5;
+
+    let mut stmt = conn.prepare(
+        "SELECT id FROM clipboard_items
+         WHERE is_pinned = 0 AND is_favorite = 0
+         AND (
+            (timestamp <= ?1)
+            OR
+            (timestamp > ?2 AND timestamp < ?3 AND timestamp <= ?4)
+         )"
+    )?;
+    let ids = stmt
+        .query_map(
+            params![cutoff_seconds, JULIAN_MIN, JULIAN_MAX, cutoff_julian_compat],
+            |row| row.get::<_, String>(0)
+        )?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(ids)
 }
 
 /// 限制历史记录数量（保留置顶和收藏）
@@ -445,4 +643,142 @@ pub fn limit_history_count(conn: &Connection, max_count: i32) -> Result<i32> {
 
     log::info!("限制历史数量：删除了 {} 条旧记录", deleted);
     Ok(deleted as i32)
+}
+
+/// 获取超出数量限制时将被删除的项目 ID 列表（最旧优先）
+pub fn get_overflow_item_ids(conn: &Connection, max_count: i32) -> Result<Vec<String>> {
+    let current_count: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM clipboard_items WHERE is_pinned = 0 AND is_favorite = 0",
+        [],
+        |row| row.get(0),
+    )?;
+
+    if current_count <= max_count {
+        return Ok(Vec::new());
+    }
+
+    let to_delete = current_count - max_count;
+    let mut stmt = conn.prepare(
+        "SELECT id FROM clipboard_items
+         WHERE is_pinned = 0 AND is_favorite = 0
+         ORDER BY timestamp ASC
+         LIMIT ?1"
+    )?;
+    let ids = stmt
+        .query_map(params![to_delete], |row| row.get::<_, String>(0))?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(ids)
+}
+
+/// 新增或更新自定义分类（与 macOS category* 同步兼容）
+pub fn upsert_custom_category(
+    conn: &Connection,
+    category: &Value,
+    fallback_id: Option<&str>,
+) -> Result<()> {
+    let id = category
+        .get("id")
+        .and_then(|v| v.as_str())
+        .or(fallback_id)
+        .unwrap_or_default();
+
+    if id.is_empty() {
+        return Ok(());
+    }
+
+    let name = category
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("未命名分类");
+    let icon = category
+        .get("icon")
+        .and_then(|v| v.as_str())
+        .unwrap_or("folder");
+    let color = category
+        .get("color")
+        .and_then(|v| v.as_str())
+        .unwrap_or("blue");
+
+    let rules = category.get("rules").map(|v| v.to_string());
+    let manual_items = category.get("manualItems")
+        .or_else(|| category.get("manual_items"))
+        .map(|v| v.to_string());
+
+    let is_enabled = category
+        .get("isEnabled")
+        .or_else(|| category.get("is_enabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true) as i32;
+    let is_favorite_tag = category
+        .get("isFavoriteTag")
+        .or_else(|| category.get("is_favorite_tag"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false) as i32;
+    let sort_order = category
+        .get("sortOrder")
+        .or_else(|| category.get("sort_order"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let is_permanent = category
+        .get("isPermanent")
+        .or_else(|| category.get("is_permanent"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false) as i32;
+    let parent_id = category
+        .get("parentId")
+        .or_else(|| category.get("parent_id"))
+        .and_then(|v| v.as_str());
+    let allows_subcategories = category
+        .get("allowsSubcategories")
+        .or_else(|| category.get("allows_subcategories"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false) as i32;
+
+    conn.execute(
+        "INSERT INTO custom_categories (
+            id, name, icon, color, rules, manual_items,
+            is_enabled, is_favorite_tag, sort_order,
+            is_permanent, parent_id, allows_subcategories, updated_at
+        ) VALUES (
+            ?1, ?2, ?3, ?4, ?5, ?6,
+            ?7, ?8, ?9,
+            ?10, ?11, ?12, julianday('now')
+        )
+        ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            icon = excluded.icon,
+            color = excluded.color,
+            rules = excluded.rules,
+            manual_items = excluded.manual_items,
+            is_enabled = excluded.is_enabled,
+            is_favorite_tag = excluded.is_favorite_tag,
+            sort_order = excluded.sort_order,
+            is_permanent = excluded.is_permanent,
+            parent_id = excluded.parent_id,
+            allows_subcategories = excluded.allows_subcategories,
+            updated_at = julianday('now')",
+        params![
+            id,
+            name,
+            icon,
+            color,
+            rules,
+            manual_items,
+            is_enabled,
+            is_favorite_tag,
+            sort_order,
+            is_permanent,
+            parent_id,
+            allows_subcategories,
+        ],
+    )?;
+
+    Ok(())
+}
+
+/// 删除自定义分类
+pub fn delete_custom_category(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM custom_categories WHERE id = ?1", [id])?;
+    Ok(())
 }

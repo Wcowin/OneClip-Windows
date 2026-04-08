@@ -12,6 +12,7 @@ mod clipboard;
 mod database;
 mod commands;
 mod paste;
+mod shortcuts;
 mod sync;
 
 use tauri::{
@@ -49,6 +50,7 @@ fn main() {
             Some(vec!["--hidden"]),
         ))
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         
         // 注册命令
         .invoke_handler(tauri::generate_handler![
@@ -74,6 +76,9 @@ fn main() {
             commands::get_monitor_enabled,
             commands::set_excluded_apps,
             commands::limit_history_count,
+            commands::set_global_shortcuts,
+            commands::check_for_updates,
+            commands::download_and_install_update,
         ])
         
         // 应用启动设置
@@ -115,28 +120,22 @@ fn main() {
             // 启动窗口观察器（用于记录上一个活动窗口，粘贴时使用）
             paste::start_observer();
 
-            // 注册全局快捷键 (Ctrl+Shift+V)
-            use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, Code, Modifiers, ShortcutState};
-            let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV);
+            // 注册全局快捷键（支持从设置动态更新）
+            use tauri_plugin_global_shortcut::ShortcutState;
             let app_handle_shortcut = app.handle().clone();
             app.handle().plugin(
                 tauri_plugin_global_shortcut::Builder::new()
-                    .with_handler(move |_app, _shortcut, event| {
+                    .with_handler(move |_app, shortcut, event| {
                         if event.state == ShortcutState::Pressed {
-                            if let Some(window) = app_handle_shortcut.get_webview_window("main") {
-                                if window.is_visible().unwrap_or(false) {
-                                    let _ = window.hide();
-                                } else {
-                                    let _ = window.show();
-                                    let _ = window.set_focus();
-                                }
-                            }
+                            shortcuts::handle_shortcut(&app_handle_shortcut, shortcut, event.state);
                         }
                     })
                     .build(),
             )?;
-            app.global_shortcut().register(shortcut)?;
-            log::info!("全局快捷键已注册: Ctrl+Shift+V");
+            match shortcuts::setup_shortcuts(&app.handle().clone()) {
+                Ok(_) => log::info!("全局快捷键已注册（支持动态配置）"),
+                Err(e) => log::warn!("注册全局快捷键失败: {}", e),
+            }
 
             // 启动剪贴板监控
             let app_handle = app.handle().clone();

@@ -142,6 +142,9 @@ export const useClipboardStore = create<ClipboardState>((set, get) => ({
   // 添加新项目
   addItem: (item) => {
     set((state) => {
+      if (state.items.some((existing) => existing.id === item.id)) {
+        return state
+      }
       const newItems = [item, ...state.items]
       return {
         items: newItems,

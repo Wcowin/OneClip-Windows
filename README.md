@@ -11,7 +11,9 @@
 <p align="center">
   <a href="#功能特性">功能特性</a> •
   <a href="#安装使用">安装使用</a> •
+  <a href="#更新方式">更新方式</a> •
   <a href="#开发指南">开发指南</a> •
+  <a href="#发布流程">发布流程</a> •
   <a href="#技术栈">技术栈</a> •
   <a href="#贡献指南">贡献指南</a>
 </p>
@@ -52,7 +54,7 @@
 
 ### 下载安装
 
-从 [Releases](https://github.com/your-username/OneClip-Windows/releases) 页面下载最新版本：
+从 [Releases](https://github.com/Wcowin/OneClip-Windows/releases) 页面下载最新版本：
 
 - `OneClip_x.x.x_x64-setup.exe` - NSIS 安装包（推荐）
 - `OneClip_x.x.x_x64_en-US.msi` - MSI 安装包
@@ -61,7 +63,8 @@
 
 | 快捷键 | 功能 |
 |--------|------|
-| `Ctrl+Shift+V` | 呼出/隐藏窗口 |
+| `Ctrl+Shift+V` | 呼出/隐藏主窗口（默认，可改） |
+| `Ctrl+;` | 呼出/隐藏快速粘贴面板（默认，可改） |
 | `↑` / `↓` | 上下选择 |
 | `Enter` | 粘贴选中项 |
 | `Delete` | 删除选中项 |
@@ -69,6 +72,24 @@
 | `Ctrl+F` | 聚焦搜索框 |
 | `E` | 编辑选中文本 |
 | `1-9` | 快速粘贴前 9 项 |
+
+## 更新方式
+
+支持应用内更新（基于 GitHub Releases）：
+
+1. 在应用「设置 → 关于」点击 **检查更新**
+2. 发现新版本后点击 **下载并安装更新**
+3. 按安装器提示完成升级
+
+同时保留手动更新：
+
+1. 退出 OneClip（托盘也退出）
+2. 下载新版本安装包（`msi` 或 `exe`）
+3. 直接运行安装包覆盖安装
+
+应用数据在用户目录中，升级通常会保留历史和设置。
+
+> 维护者说明：需要在发布流程中上传 `latest.json` 和对应 `.sig` 文件，详见 [RELEASE.md](./RELEASE.md)。
 
 ## 开发指南
 
@@ -106,17 +127,29 @@ winget install Microsoft.EdgeWebView2Runtime
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-username/OneClip-Windows.git
+git clone https://github.com/Wcowin/OneClip-Windows.git
 cd OneClip-Windows
 
 # 安装依赖
 npm install
 
 # 开发模式运行
-npm run tauri dev
+npm run tauri:dev
 
 # 构建发布版本
-npm run tauri build
+npm run tauri:build
+```
+
+## 发布流程
+
+完整发布流程见 [RELEASE.md](RELEASE.md)。
+
+支持 GitHub Actions 自动发布：推送 `vX.Y.Z` tag 后会自动构建安装包、生成 `latest.json` 并上传到 Release。
+
+Windows 机器上一键验收与打包：
+
+```powershell
+npm run release:smoke:win
 ```
 
 ### 项目结构
@@ -140,8 +173,10 @@ OneClip-Windows/
 │   │   └── sync.rs           # 数据同步
 │   ├── icons/                # 应用图标
 │   └── tauri.conf.json       # Tauri 配置
+├── scripts/                  # 发布与验收脚本
 ├── public/                   # 静态资源
 ├── package.json
+├── RELEASE.md                # 发布与验收规范
 └── README.md
 ```
 

@@ -14,6 +14,7 @@ interface UseKeyboardOptions {
   onEscape?: () => void
   onSearch?: () => void
   onEdit?: () => void
+  enabled?: boolean
 }
 
 /**
@@ -126,7 +127,10 @@ export function useKeyboard(options: UseKeyboardOptions = {}) {
   }, [filteredItems, selectedIndex, setSelectedIndex, deleteItem, options])
 
   useEffect(() => {
+    if (options.enabled === false) {
+      return
+    }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleKeyDown])
+  }, [handleKeyDown, options.enabled])
 }

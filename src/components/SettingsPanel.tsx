@@ -34,7 +34,9 @@ import {
   setMonitorEnabled,
   setExcludedApps,
   limitHistoryCount,
-  cleanupExpired
+  cleanupExpired,
+  checkForUpdates,
+  downloadAndInstallUpdate
 } from '../lib/tauri'
 
 // 同步目录选择器组件
@@ -234,6 +236,8 @@ type SettingsTab = 'appearance' | 'shortcuts' | 'behavior' | 'data' | 'about'
 
 export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance')
+  const [updateStatus, setUpdateStatus] = useState<string>('')
+  const [updateBusy, setUpdateBusy] = useState(false)
   
   const {
     isDarkMode,
@@ -250,6 +254,8 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     setSoundEnabled,
     globalShortcut,
     setGlobalShortcut,
+    quickPasteShortcut,
+    setQuickPasteShortcut,
     monitorEnabled,
     setMonitorEnabled: setMonitorEnabled_store,
     autoPaste,
@@ -388,6 +394,19 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                            border-0 rounded-lg text-gray-700 dark:text-gray-200
                            focus:outline-none focus:ring-2 focus:ring-primary-500"
                 placeholder="Ctrl+Shift+V"
+              />
+            )}
+            {renderSettingItem(
+              '快速粘贴快捷键',
+              '呼出独立快速粘贴面板的快捷键',
+              <input
+                type="text"
+                value={quickPasteShortcut}
+                onChange={(e) => setQuickPasteShortcut(e.target.value)}
+                className="w-32 px-3 py-1.5 text-sm text-center bg-gray-100 dark:bg-gray-700 
+                           border-0 rounded-lg text-gray-700 dark:text-gray-200
+                           focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="Ctrl+;"
               />
             )}
             <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
@@ -655,6 +674,56 @@ export default function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                 <p>支持文本、图片、文件、链接等多种类型。</p>
                 <p>数据与 macOS 版完全兼容。</p>
               </div>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              <button
+                disabled={updateBusy}
+                onClick={async () => {
+                  setUpdateBusy(true)
+                  setUpdateStatus('正在检查更新...')
+                  try {
+                    const result = await checkForUpdates()
+                    if (!result.available) {
+                      setUpdateStatus('当前已是最新版本')
+                    } else {
+                      setUpdateStatus(
+                        `发现新版本 ${result.version}（当前 ${result.currentVersion}）`
+                      )
+                    }
+                  } catch (e: any) {
+                    setUpdateStatus(`检查更新失败: ${e?.toString?.() ?? e}`)
+                  } finally {
+                    setUpdateBusy(false)
+                  }
+                }}
+                className="w-full px-4 py-2 rounded-lg bg-blue-500 text-white text-sm hover:bg-blue-600 disabled:opacity-60"
+              >
+                检查更新
+              </button>
+              <button
+                disabled={updateBusy}
+                onClick={async () => {
+                  setUpdateBusy(true)
+                  setUpdateStatus('正在下载并安装更新...')
+                  try {
+                    await downloadAndInstallUpdate()
+                    setUpdateStatus('更新安装流程已完成，请按安装器提示操作')
+                  } catch (e: any) {
+                    setUpdateStatus(`安装更新失败: ${e?.toString?.() ?? e}`)
+                  } finally {
+                    setUpdateBusy(false)
+                  }
+                }}
+                className="w-full px-4 py-2 rounded-lg bg-gray-700 text-white text-sm hover:bg-gray-800 disabled:opacity-60"
+              >
+                下载并安装更新
+              </button>
+              {updateStatus && (
+                <div className="text-xs text-gray-500 dark:text-gray-400 text-left bg-gray-50 dark:bg-gray-800 rounded-lg p-2">
+                  {updateStatus}
+                </div>
+              )}
             </div>
 
             <div className="mt-4 text-xs text-gray-400 dark:text-gray-500">

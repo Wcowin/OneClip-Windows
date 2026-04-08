@@ -10,7 +10,11 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "release:smoke:win": "pwsh -File ./scripts/windows-release-smoke.ps1",
+    "release:latestjson:win": "node ./scripts/build-updater-latest-json.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

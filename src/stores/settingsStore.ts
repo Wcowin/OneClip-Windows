@@ -17,6 +17,7 @@ interface SettingsState extends Settings {
   setAutoClearDays: (days: number) => void
   setSoundEnabled: (enabled: boolean) => void
   setGlobalShortcut: (shortcut: string) => void
+  setQuickPasteShortcut: (shortcut: string) => void
   setMonitorEnabled: (enabled: boolean) => void
   addExcludedApp: (app: string) => void
   removeExcludedApp: (app: string) => void
@@ -38,6 +39,7 @@ const defaultSettings: Settings = {
   autoPaste: 'double',      // 默认双击粘贴
   pasteAsPlain: false,      // 默认保留格式
   globalShortcut: 'Ctrl+Shift+V',
+  quickPasteShortcut: 'Ctrl+;',
   monitorEnabled: true,
   excludedApps: [],
   windowWidth: 400,
@@ -73,6 +75,9 @@ export const useSettingsStore = create<SettingsState>()(
 
       // 设置全局快捷键
       setGlobalShortcut: (shortcut) => set({ globalShortcut: shortcut }),
+
+      // 设置快速粘贴快捷键
+      setQuickPasteShortcut: (shortcut) => set({ quickPasteShortcut: shortcut }),
 
       // 设置监控开关
       setMonitorEnabled: (enabled) => set({ monitorEnabled: enabled }),

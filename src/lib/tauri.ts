@@ -8,7 +8,7 @@
 
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { getCurrentWindow } from '@tauri-apps/api/window'
+import { getCurrentWindow, PhysicalPosition, cursorPosition, currentMonitor } from '@tauri-apps/api/window'
 import type { ClipboardItem } from '../types'
 
 // ============ 剪贴板操作 ============
@@ -129,6 +129,37 @@ export async function saveSetting(key: string, value: string): Promise<void> {
   }
 }
 
+/**
+ * 设置后端全局快捷键（主窗口 + 快速粘贴）
+ */
+export async function setGlobalShortcuts(globalShortcut: string, quickPasteShortcut: string): Promise<void> {
+  await invoke('set_global_shortcuts', {
+    global_shortcut: globalShortcut,
+    quick_paste_shortcut: quickPasteShortcut,
+  })
+}
+
+export interface UpdateCheckResult {
+  available: boolean
+  version?: string
+  currentVersion?: string
+  notes?: string
+}
+
+/**
+ * 检查更新
+ */
+export async function checkForUpdates(): Promise<UpdateCheckResult> {
+  return await invoke<UpdateCheckResult>('check_for_updates')
+}
+
+/**
+ * 下载并安装更新
+ */
+export async function downloadAndInstallUpdate(): Promise<void> {
+  await invoke('download_and_install_update')
+}
+
 // ============ 窗口操作 ============
 
 /**
@@ -154,6 +185,31 @@ export async function hideWindow(): Promise<void> {
   } catch (error) {
     console.error('隐藏窗口失败:', error)
   }
+}
+
+/**
+ * 将快速粘贴窗口定位到鼠标附近（与 Mac 行为对齐）
+ */
+export async function positionQuickPasteWindowNearCursor(): Promise<void> {
+  const window = getCurrentWindow()
+  const size = await window.outerSize()
+  const cursor = await cursorPosition()
+  const monitor = await currentMonitor()
+
+  let x = cursor.x + 10
+  let y = cursor.y + 10
+
+  if (monitor) {
+    const margin = 8
+    const maxX = monitor.position.x + monitor.size.width - size.width - margin
+    const maxY = monitor.position.y + monitor.size.height - size.height - margin
+    const minX = monitor.position.x + margin
+    const minY = monitor.position.y + margin
+    x = Math.max(minX, Math.min(x, maxX))
+    y = Math.max(minY, Math.min(y, maxY))
+  }
+
+  await window.setPosition(new PhysicalPosition(Math.round(x), Math.round(y)))
 }
 
 /**
@@ -194,6 +250,16 @@ export async function onClipboardChange(
  */
 export async function onShowWindow(callback: () => void): Promise<() => void> {
   const unlisten = await listen('show-window', () => {
+    callback()
+  })
+  return unlisten
+}
+
+/**
+ * 监听快速粘贴打开事件（由全局快捷键触发）
+ */
+export async function onQuickPasteOpen(callback: () => void): Promise<() => void> {
+  const unlisten = await listen('quick-paste-open', () => {
     callback()
   })
   return unlisten

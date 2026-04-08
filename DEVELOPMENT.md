@@ -128,7 +128,7 @@ npm install
 ### 启动开发模式
 
 ```powershell
-npm run tauri dev
+npm run tauri:dev
 ```
 
 这会：
@@ -168,7 +168,7 @@ log::info!("变量值: {:?}", some_variable);
 log::error!("出错了: {}", error_message);
 ```
 
-日志会显示在运行 `npm run tauri dev` 的终端中。
+日志会显示在运行 `npm run tauri:dev` 的终端中。
 
 ---
 
@@ -177,7 +177,7 @@ log::error!("出错了: {}", error_message);
 ### 构建发布版本
 
 ```powershell
-npm run tauri build
+npm run tauri:build
 ```
 
 构建需要 5-10 分钟，完成后输出：
@@ -201,21 +201,21 @@ src-tauri/target/release/
 
 ```powershell
 # 仅构建，不打包安装程序
-npm run tauri build -- --no-bundle
+npm run tauri:build -- --no-bundle
 
 # 构建调试版本（更快，有调试信息）
-npm run tauri build -- --debug
+npm run tauri:build -- --debug
 
 # 指定打包格式
-npm run tauri build -- --bundles nsis
-npm run tauri build -- --bundles msi
+npm run tauri:build -- --bundles nsis
+npm run tauri:build -- --bundles msi
 ```
 
 ---
 
 ## 常见问题
 
-### Q1: `npm run tauri dev` 报错 "linker 'link.exe' not found"
+### Q1: `npm run tauri:dev` 报错 "linker 'link.exe' not found"
 
 **原因**：Visual Studio Build Tools 未正确安装
 
@@ -253,13 +253,13 @@ winget install Microsoft.EdgeWebView2Runtime
 1. 将应用添加到安全软件白名单
 2. 右键 → 以管理员身份运行
 
-### Q5: 全局快捷键 Ctrl+Shift+V 不响应
+### Q5: 全局快捷键不响应
 
 **可能原因**：快捷键被其他应用占用
 
 **解决**：
 1. 检查是否有其他应用使用了相同快捷键
-2. 可以在设置中修改快捷键（待实现）
+2. 在设置页修改主窗口快捷键或快速粘贴快捷键
 
 ### Q6: 构建的 exe 无法运行
 
@@ -290,14 +290,14 @@ npm install
 
 ### 日常开发
 
-1. 启动开发模式：`npm run tauri dev`
+1. 启动开发模式：`npm run tauri:dev`
 2. 修改代码，查看效果
 3. 前端改动自动热重载
 4. Rust 改动需要重启
 
 ### 测试构建
 
-1. 构建：`npm run tauri build`
+1. 构建：`npm run tauri:build`
 2. 测试 `src-tauri/target/release/oneclip-windows.exe`
 3. 确认功能正常
 
@@ -307,9 +307,12 @@ npm install
    - `package.json` 中的 `version`
    - `src-tauri/Cargo.toml` 中的 `version`
    - `src-tauri/tauri.conf.json` 中的 `version`
-2. 构建：`npm run tauri build`
-3. 测试安装包
-4. 发布到 GitHub Releases
+2. 构建：`npm run tauri:build`
+3. 生成 updater 元数据（`latest.json`）并准备 `.sig`
+4. 测试安装包和应用内更新
+5. 发布到 GitHub Releases（安装包 + `.sig` + `latest.json`）
+
+详细流程见 `RELEASE.md`。
 
 ---
 
@@ -317,10 +320,13 @@ npm install
 
 ```powershell
 # 开发模式
-npm run tauri dev
+npm run tauri:dev
 
 # 构建发布版
-npm run tauri build
+npm run tauri:build
+
+# 生成 updater latest.json（需要带参数）
+npm run release:latestjson:win -- --help
 
 # 仅构建前端
 npm run build
